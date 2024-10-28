@@ -1,0 +1,12 @@
+variables:
+  SOURCE_FOLDER: "src"
+  CFLAGS: "-DBBF_VENDOR_PREFIX=\\\"X_IOPSYS_EU_\\\""
+
+include:
+  - project: 'iopsys/gitlab-ci-pipeline'
+    file: '/static-code-analysis.yml'
+    ref: '1.2'
+
+stages:
+    - static_code_analysis
+
