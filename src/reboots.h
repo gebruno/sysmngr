@@ -15,4 +15,6 @@
 extern DMOBJ tDeviceInfoRebootsObj[];
 extern DMLEAF tDeviceInfoRebootsParams[];
 
+void sysmngr_reboots_init(void);
+
 #endif //__REBOOTS_H

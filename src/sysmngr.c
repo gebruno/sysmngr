@@ -16,6 +16,10 @@
 #include <libubox/uloop.h>
 #include <libbbfdm-ubus/bbfdm-ubus.h>
 
+#ifdef SYSMNGR_REBOOTS
+#include "reboots.h"
+#endif
+
 extern DM_MAP_OBJ tDynamicObj[];
 
 static void usage(char *prog)
@@ -55,6 +59,10 @@ int main(int argc, char **argv)
 	bbfdm_ubus_load_data_model(tDynamicObj);
 
 	openlog("sysmngr", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+
+#ifdef SYSMNGR_REBOOTS
+	sysmngr_reboots_init();
+#endif
 
 	if (bbfdm_ubus_regiter_init(&bbfdm_ctx))
 		goto out;

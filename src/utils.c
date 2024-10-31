@@ -147,3 +147,103 @@ void send_transfer_complete_event(const char *command, const char *obj_path, con
 
 	blob_buf_free(&bb);
 }
+
+int sysmngr_uci_get(const char *package, const char *section, const char *option, const char *default_value, char *buffer, size_t buffer_size)
+{
+	struct uci_ptr ptr = {0};
+	char uci_str[128] = {0};
+
+	if (!package || !section || !option || !default_value || !buffer || !buffer_size)
+		return -1;
+
+	struct uci_context *ctx = uci_alloc_context();
+	if (!ctx) {
+		BBF_ERR("UCI context allocation failed");
+		return -1;
+	}
+
+	snprintf(uci_str, sizeof(uci_str), "%s.%s.%s", package, section, option);
+
+	if (uci_lookup_ptr(ctx, &ptr, uci_str, true) != UCI_OK || ptr.o == NULL) {
+		snprintf(buffer, buffer_size, "%s", default_value);
+		uci_free_context(ctx);
+		return -1;
+	}
+
+	snprintf(buffer, buffer_size, "%s", ptr.o->v.string);
+	uci_free_context(ctx);
+	return 0;
+}
+
+int sysmngr_uci_set(const char *package, const char *section, const char *option, const char *value)
+{
+	struct uci_ptr ptr = {0};
+	char uci_str[128] = {0};
+
+	if (!package || !section || !value)
+		return -1;
+
+	struct uci_context *ctx = uci_alloc_context();
+	if (!ctx) {
+		BBF_ERR("UCI context allocation failed");
+		return -1;
+	}
+
+	snprintf(uci_str, sizeof(uci_str), "%s.%s%s%s=%s",
+			package,
+			section,
+			option ? "." : "",
+			option ? option : "",
+			value);
+
+	if (uci_lookup_ptr(ctx, &ptr, uci_str, true) != UCI_OK ||
+		uci_set(ctx, &ptr) != UCI_OK ||
+		uci_save(ctx, ptr.p) != UCI_OK ||
+		uci_commit(ctx, &ptr.p, false) != UCI_OK) {
+
+		uci_free_context(ctx);
+		return -1;
+	}
+
+	uci_free_context(ctx);
+	return 0;
+}
+
+int sysmngr_uci_delete(struct uci_context *uci_ctx, const char *package, const char *section)
+{
+	struct uci_ptr ptr = {0};
+	char uci_str[64] = {0};
+
+	if (!package || !section)
+		return -1;
+
+	snprintf(uci_str, sizeof(uci_str), "%s.%s", package, section);
+
+	if (uci_lookup_ptr(uci_ctx, &ptr, uci_str, true) != UCI_OK ||
+		uci_delete(uci_ctx, &ptr) != UCI_OK ||
+		uci_save(uci_ctx, ptr.p) != UCI_OK) {
+
+		return -1;
+	}
+
+	return 0;
+}
+
+int sysmngr_get_uptime(void)
+{
+	// cppcheck-suppress cert-MSC24-C
+	FILE *fp = fopen("/proc/uptime", "r");
+	int uptime = 0;
+
+	if (fp != NULL) {
+		char *pch = NULL, *spch = NULL, buf[64] = {0};
+
+		if (fgets(buf, sizeof(buf), fp) != NULL) {
+			pch = strtok_r(buf, ".", &spch);
+			uptime = (pch) ? (int)strtol(pch, NULL, 10) : 0;
+		}
+		fclose(fp);
+	}
+
+	return uptime;
+}

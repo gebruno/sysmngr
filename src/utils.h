@@ -21,4 +21,10 @@ bool validate_server_response_code(const char *url, int response_code);
 void send_transfer_complete_event(const char *command, const char *obj_path, const char *transfer_url,
 	char *fault_string, time_t start_t, time_t complete_t, const char *commandKey, const char *transfer_type);
 
+int sysmngr_uci_get(const char *package, const char *section, const char *option, const char *default_value, char *buffer, size_t buffer_size);
+int sysmngr_uci_set(const char *package, const char *section, const char *option, const char *value);
+int sysmngr_uci_delete(struct uci_context *uci_ctx, const char *package, const char *section);
+
+int sysmngr_get_uptime(void);
+
 #endif //__UTILS_H
