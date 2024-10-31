@@ -35,6 +35,10 @@
 #include "supported_dm.h"
 #endif
 
+#ifdef SYSMNGR_NETWORK_PROPERTIES
+#include "network.h"
+#endif
+
 /*************************************************************
 * GET & SET PARAM
 **************************************************************/
@@ -236,6 +240,10 @@ DMOBJ tDeviceInfoObj[] = {
 
 #ifdef SYSMNGR_PROCESS_STATUS
 {"ProcessStatus", &DMREAD, NULL, NULL, NULL, NULL, NULL, NULL, tDeviceInfoProcessStatusObj, tDeviceInfoProcessStatusParams, NULL, BBFDM_BOTH},
+#endif
+
+#ifdef SYSMNGR_NETWORK_PROPERTIES
+{"NetworkProperties", &DMREAD, NULL, NULL, NULL, NULL, NULL, NULL, NULL, tDeviceInfoNetworkPropertiesParams, NULL, BBFDM_BOTH},
 #endif
 
 #ifdef SYSMNGR_SUPPORTED_DATA_MODEL
