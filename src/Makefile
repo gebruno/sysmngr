@@ -1,0 +1,55 @@
+PROG = sysmngr
+
+OBJS = sysmngr.o deviceinfo.o utils.o
+
+PROG_CFLAGS = $(CFLAGS) -Wall -Werror -fstrict-aliasing -g
+
+PROG_LDFLAGS = $(LDFLAGS) -luci -lubus -lubox -lblobmsg_json -ljson-c -lssl -lcrypto -lbbfdm-ubus -lbbfdm-api
+FPIC := -fPIC
+
+ifeq ($(SYSMNGR_VENDOR_CONFIG_FILE),y)
+OBJS += configs.o
+PROG_CFLAGS += -DSYSMNGR_VENDOR_CONFIG_FILE
+endif
+
+ifeq ($(SYSMNGR_MEMORY_STATUS),y)
+OBJS += memory.o
+PROG_CFLAGS += -DSYSMNGR_MEMORY_STATUS
+endif
+
+ifeq ($(SYSMNGR_PROCESS_STATUS),y)
+OBJS += processes.o
+PROG_CFLAGS += -DSYSMNGR_PROCESS_STATUS
+endif
+
+ifeq ($(SYSMNGR_SUPPORTED_DATA_MODEL),y)
+OBJS += supported_dm.o
+PROG_CFLAGS += -DSYSMNGR_SUPPORTED_DATA_MODEL
+endif
+
+ifeq ($(SYSMNGR_FIRMWARE_IMAGE),y)
+OBJS += fw_images.o
+PROG_CFLAGS += -DSYSMNGR_FIRMWARE_IMAGE
+endif
+
+ifeq ($(SYSMNGR_REBOOTS),y)
+OBJS += reboots.o
+PROG_CFLAGS += -DSYSMNGR_REBOOTS
+endif
+
+ifeq ($(SYSMNGR_VENDOR_EXTENSIONS),y)
+PROG_CFLAGS += -DSYSMNGR_VENDOR_EXTENSIONS
+endif
+
+.PHONY: all clean
+
+%.o: %.c
+	$(CC) $(PROG_CFLAGS) $(FPIC) -c -o $@ $<
+
+all: $(PROG)
+
+$(PROG): $(OBJS)
+	$(CC) $(PROG_CFLAGS) -o $@ $^ $(PROG_LDFLAGS)
+
+clean:
+	rm -f *.o $(PROG)
