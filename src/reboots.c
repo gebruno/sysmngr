@@ -29,19 +29,19 @@ static int g_retry_count = 0;
 
 static void reset_option_counter(const char *option_name, const char *option_value)
 {
-	sysmngr_uci_set("sysmngr", "deviceinfo", option_name, option_value);
+	sysmngr_uci_set("sysmngr", "reboots", option_name, option_value);
 }
 
 static void increment_option_counter(const char *option_name)
 {
 	char buf[16] = {0};
 
-	sysmngr_uci_get("sysmngr", "deviceinfo", option_name, "0", buf, sizeof(buf));
+	sysmngr_uci_get("sysmngr", "reboots", option_name, "0", buf, sizeof(buf));
 
 	int counter = (int)strtol(buf, NULL, 10) + 1;
 
 	snprintf(buf, sizeof(buf), "%d", counter);
-	sysmngr_uci_set("sysmngr", "deviceinfo", option_name, buf);
+	sysmngr_uci_set("sysmngr", "reboots", option_name, buf);
 }
 
 static void get_boot_option_value(const char *option_name, char *buffer, size_t buffer_size)
@@ -185,9 +185,9 @@ static void create_reboot_section(const char *trigger, const char *reason)
 		sysmngr_uci_set("sysmngr", sec_name, "cause", "FactoryReset");
 	} else {
 		char last_reboot_cause[32] = {0};
-		sysmngr_uci_get("sysmngr", "deviceinfo", "last_reboot_cause", "LocalReboot", last_reboot_cause, sizeof(last_reboot_cause));
+		sysmngr_uci_get("sysmngr", "reboots", "last_reboot_cause", "LocalReboot", last_reboot_cause, sizeof(last_reboot_cause));
 		sysmngr_uci_set("sysmngr", sec_name, "cause", last_reboot_cause);
-		sysmngr_uci_set("sysmngr", "deviceinfo", "last_reboot_cause", "");
+		sysmngr_uci_set("sysmngr", "reboots", "last_reboot_cause", "");
 	}
 
 	sysmngr_uci_set("sysmngr", sec_name, "reason", boot_reason_message(trigger, reason));
@@ -224,7 +224,7 @@ static void sysmngr_register_boot_action(void)
 		increment_option_counter("warm_boot_count");
 	}
 
-	sysmngr_uci_get("sysmngr", "deviceinfo", "max_reboot_entries", "3", max_entries, sizeof(max_entries));
+	sysmngr_uci_get("sysmngr", "reboots", "max_reboot_entries", "3", max_entries, sizeof(max_entries));
 	int max_reboot_entries = (int)strtol(max_entries, NULL, 10);
 
 	if (max_reboot_entries != 0) {
@@ -293,37 +293,37 @@ static int browseDeviceInfoRebootsRebootInst(struct dmctx *dmctx, DMNODE *parent
 **************************************************************/
 static int get_DeviceInfoReboots_BootCount(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	dmuci_get_option_value_string("sysmngr", "deviceinfo", "boot_count", value);
+	dmuci_get_option_value_string("sysmngr", "reboots", "boot_count", value);
 	return 0;
 }
 
 static int get_DeviceInfoReboots_CurrentVersionBootCount(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	dmuci_get_option_value_string("sysmngr", "deviceinfo", "curr_version_boot_count", value);
+	dmuci_get_option_value_string("sysmngr", "reboots", "curr_version_boot_count", value);
 	return 0;
 }
 
 static int get_DeviceInfoReboots_WatchdogBootCount(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	dmuci_get_option_value_string("sysmngr", "deviceinfo", "watchdog_boot_count", value);
+	dmuci_get_option_value_string("sysmngr", "reboots", "watchdog_boot_count", value);
 	return 0;
 }
 
 static int get_DeviceInfoReboots_ColdBootCount(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	dmuci_get_option_value_string("sysmngr", "deviceinfo", "cold_boot_count", value);
+	dmuci_get_option_value_string("sysmngr", "reboots", "cold_boot_count", value);
 	return 0;
 }
 
 static int get_DeviceInfoReboots_WarmBootCount(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	dmuci_get_option_value_string("sysmngr", "deviceinfo", "warm_boot_count", value);
+	dmuci_get_option_value_string("sysmngr", "reboots", "warm_boot_count", value);
 	return 0;
 }
 
 static int get_DeviceInfoReboots_MaxRebootEntries(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	*value = dmuci_get_option_value_fallback_def("sysmngr", "deviceinfo", "max_reboot_entries", "3");
+	*value = dmuci_get_option_value_fallback_def("sysmngr", "reboots", "max_reboot_entries", "3");
 	return 0;
 }
 
@@ -365,7 +365,7 @@ static int set_DeviceInfoReboots_MaxRebootEntries(char *refparam, struct dmctx *
 				}
 			}
 
-			dmuci_set_value("sysmngr", "deviceinfo", "max_reboot_entries", value);
+			dmuci_set_value("sysmngr", "reboots", "max_reboot_entries", value);
 			break;
 	}
 	return 0;

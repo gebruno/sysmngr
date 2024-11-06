@@ -28,7 +28,7 @@ static void _exec_reboot(const void *arg1, void *arg2)
 	snprintf(config_name, sizeof(config_name), "%s", "sysmngr");
 
 	// Set last_reboot_cause to 'RemoteReboot' because the upcoming reboot will be initiated by USP Operate
-	dmuci_set_value(config_name, "deviceinfo", "last_reboot_cause", "RemoteReboot");
+	dmuci_set_value(config_name, "reboots", "last_reboot_cause", "RemoteReboot");
 	dmuci_commit_package(config_name);
 
 	sleep(3);
@@ -40,7 +40,7 @@ static void _exec_reboot(const void *arg1, void *arg2)
 	BBF_ERR("Reboot call failed!!!");
 
 	// Set last_reboot_cause to empty because there is a problem in the system reboot
-	dmuci_set_value(config_name, "deviceinfo", "last_reboot_cause", "");
+	dmuci_set_value(config_name, "reboots", "last_reboot_cause", "");
 	dmuci_commit_package(config_name);
 }
 
