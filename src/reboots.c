@@ -174,7 +174,7 @@ static void create_reboot_section(const char *trigger, const char *reason)
 	if (!trigger || !reason)
 		return;
 
-	snprintf(sec_name, sizeof(sec_name), "reboot_%ld", time(NULL));
+	snprintf(sec_name, sizeof(sec_name), "reboot_%ld", (long int)time(NULL));
 	calculate_boot_time(boot_time, sizeof(boot_time));
 
 	sysmngr_uci_set("sysmngr", sec_name, NULL, "reboot");

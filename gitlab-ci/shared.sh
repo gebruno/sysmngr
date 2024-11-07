@@ -18,7 +18,7 @@ function install_bbfdm()
 	if [ -n "${BBFDM_BRANCH}" ]; then
 		exec_cmd git clone -b ${BBFDM_BRANCH} https://dev.iopsys.eu/bbf/bbfdm.git /opt/dev/bbfdm
 	else
-		exec_cmd git clone -b sysmngr https://dev.iopsys.eu/bbf/bbfdm.git /opt/dev/bbfdm
+		exec_cmd git clone https://dev.iopsys.eu/bbf/bbfdm.git /opt/dev/bbfdm
 	fi
 
 	cd /opt/dev/bbfdm
