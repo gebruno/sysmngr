@@ -15,4 +15,7 @@
 extern DMOBJ tDeviceInfoProcessStatusObj[];
 extern DMLEAF tDeviceInfoProcessStatusParams[];
 
+void sysmngr_process_init(struct ubus_context *ubus_ctx);
+void sysmngr_process_clean(struct ubus_context *ubus_ctx);
+
 #endif //__PROCESSES_H

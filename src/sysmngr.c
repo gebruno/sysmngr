@@ -20,6 +20,10 @@
 #include "reboots.h"
 #endif
 
+#ifdef SYSMNGR_REBOOTS
+#include "processes.h"
+#endif
+
 extern DM_MAP_OBJ tDynamicObj[];
 
 static void usage(char *prog)
@@ -64,6 +68,10 @@ int main(int argc, char **argv)
 	sysmngr_reboots_init();
 #endif
 
+#ifdef SYSMNGR_PROCESS_STATUS
+	sysmngr_process_init(&bbfdm_ctx.ubus_ctx);
+#endif
+
 	if (bbfdm_ubus_regiter_init(&bbfdm_ctx))
 		goto out;
 
@@ -71,6 +79,11 @@ int main(int argc, char **argv)
 
 out:
 	bbfdm_ubus_regiter_free(&bbfdm_ctx);
+
+#ifdef SYSMNGR_PROCESS_STATUS
+	sysmngr_process_clean(&bbfdm_ctx.ubus_ctx);
+#endif
+
 	closelog();
 
 	return 0;

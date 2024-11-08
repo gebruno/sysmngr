@@ -229,6 +229,44 @@ int sysmngr_uci_delete(struct uci_context *uci_ctx, const char *package, const c
 	return 0;
 }
 
+int sysmngr_ubus_invoke_async(struct ubus_context *ubus_ctx, const char *obj, const char *method, struct blob_attr *msg,
+			    sysmngr_ubus_cb data_callback, sysmngr_ubus_async_cb complete_callback)
+{
+	struct ubus_request *req = NULL;
+	uint32_t id;
+
+	if (ubus_ctx == NULL) {
+		BBF_ERR("Failed to connect with ubus, error: '%d'", errno);
+		return -1;
+	}
+
+	if (ubus_lookup_id(ubus_ctx, obj, &id)) {
+		BBF_ERR("Failed to lookup ubus object: '%s'", obj);
+		return -1;
+	}
+
+	req = (struct ubus_request *)calloc(1, sizeof(struct ubus_request));
+	if (req == NULL) {
+		BBF_ERR("failed to allocate memory for ubus request");
+		return -1;
+	}
+
+	if (ubus_invoke_async(ubus_ctx, id, method, msg, req)) {
+		BBF_ERR("ubus async call failed for object: '%s', method: '%s'", obj, method);
+		FREE(req);
+		return -1;
+	}
+
+	if (data_callback)
+		req->data_cb = data_callback;
+
+	if (complete_callback)
+		req->complete_cb = complete_callback;
+
+	ubus_complete_request_async(ubus_ctx, req);
+	return 0;
+}
+
 int sysmngr_get_uptime(void)
 {
 	// cppcheck-suppress cert-MSC24-C

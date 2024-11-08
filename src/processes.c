@@ -10,15 +10,9 @@
  */
 
 #include "utils.h"
+#include "processes.h"
 
-extern struct list_head global_memhead;
-
-LIST_HEAD(process_list);
-static int process_count = 0;
-
-#define PROCPS_BUFSIZE 1024
-
-struct process_entry {
+typedef struct process_entry {
 	struct list_head list;
 
 	char command[256];
@@ -27,7 +21,7 @@ struct process_entry {
 	char size[8];
 	char priority[8];
 	char cputime[8];
-};
+} process_entry;
 
 typedef struct jiffy_counts_t {
 	unsigned long long usr, nic, sys, idle;
@@ -35,6 +29,16 @@ typedef struct jiffy_counts_t {
 	unsigned long long total;
 	unsigned long long busy;
 } jiffy_counts_t;
+
+typedef struct process_ctx {
+	struct ubus_context *ubus_ctx;
+	struct uloop_timeout instance_timer;
+	struct list_head list;
+	int refresh_interval;
+	int process_num;
+} process_ctx;
+
+static process_ctx g_process_ctx = {0};
 
 /*************************************************************
 * COMMON FUNCTIONS
@@ -90,28 +94,6 @@ static unsigned int get_cpu_usage(void)
 	return get_cpu_load(&prev_jif, &cur_jif);
 }
 
-static bool is_update_process_allowed(void)
-{
-	char *tr069_status = NULL;
-
-	if (dmubus_object_method_exists("tr069")) {
-		struct uci_section *s = NULL, *stmp = NULL;
-		uci_path_foreach_sections_safe(varstate, "icwmp", "sess_status", stmp, s) {
-			dmuci_get_value_by_section_string(s, "current_status", &tr069_status);
-		}
-	}
-
-	if (tr069_status == NULL)
-		goto end;
-
-	if (strcmp(tr069_status, "running") == 0) {
-		return false;
-	}
-
-end:
-	return true;
-}
-
 static char *get_proc_state(char state)
 {
 	switch(state) {
@@ -132,48 +114,20 @@ static char *get_proc_state(char state)
 	return "Idle";
 }
 
-static struct process_entry *check_entry_exists(const char *pid)
-{
-	struct process_entry *entry = NULL;
-
-	list_for_each_entry(entry, &process_list, list) {
-		if (DM_STRCMP(entry->pid, pid) == 0)
-			return entry;
-	}
-
-	return NULL;
-}
-
-static void check_killed_process(void)
-{
-	struct process_entry *entry = NULL;
-	struct process_entry *entry_tmp = NULL;
-	char fstat[32];
-
-	list_for_each_entry_safe(entry, entry_tmp, &process_list, list) {
-
-		snprintf(fstat, sizeof(fstat), "/proc/%s/stat", entry->pid);
-		if (file_exists(fstat))
-			continue;
-
-		list_del(&entry->list);
-		dmfree(entry);
-	}
-}
-
 static void procps_get_cmdline(char *buf, int bufsz, const char *pid, const char *comm)
 {
-	int sz;
-	char filename[270];
+	char filename[270] = {0};
 
 	snprintf(filename, sizeof(filename), "/proc/%s/cmdline", pid);
-	sz = dm_file_to_buf(filename, buf, bufsz);
+
+	int sz = dm_file_to_buf(filename, buf, bufsz);
 	if (sz > 0) {
 		const char *base;
 		int comm_len;
 
 		while (--sz >= 0 && buf[sz] == '\0')
 			continue;
+
 		/* Prevent basename("process foo/bar") = "bar" */
 		strchrnul(buf, ' ')[0] = '\0';
 		base = basename(buf); /* before we replace argv0's NUL with space */
@@ -182,6 +136,7 @@ static void procps_get_cmdline(char *buf, int bufsz, const char *pid, const char
 				buf[sz] = ' ';
 			sz--;
 		}
+
 		if (base[0] == '-') /* "-sh" (login shell)? */
 			base++;
 
@@ -190,6 +145,7 @@ static void procps_get_cmdline(char *buf, int bufsz, const char *pid, const char
 		 */
 		if (!comm)
 			return;
+
 		comm_len = strlen(comm);
 		/* Why compare up to comm_len?
 		 * Well, some processes rewrite argv, and use _spaces_ there
@@ -212,39 +168,54 @@ static void procps_get_cmdline(char *buf, int bufsz, const char *pid, const char
 	}
 }
 
-static void init_processes(void)
+static void broadcast_add_del_event(int diff)
 {
-	DIR *dir = NULL;
-	struct dirent *entry = NULL;
-	struct stat stats = {0};
-	char buf[PROCPS_BUFSIZE];
-	char fstat[288];
-	char command[256];
-	char comm[32];
-	char bsize[32];
-	char cputime[32];
-	char priori[32];
-	char *comm1 = NULL;
-	char *comm2 = NULL;
-	char state;
-	unsigned long stime;
-	unsigned long utime;
-	unsigned long vsize;
-	int priority, n;
-	int curr_process_idx = 0;
+	struct blob_buf bb = {0};
+	char method_name[64] = {0};
 
-	if (!is_update_process_allowed())
+	// On the first run, add and delete events are managed by the instance refresh mechanism defined in bbfdm
+	if (g_process_ctx.process_num == 0)
 		return;
 
-	check_killed_process();
+	memset(&bb, 0, sizeof(struct blob_buf));
+	blob_buf_init(&bb, 0);
+
+	void *a = blobmsg_open_array(&bb, "instances");
+
+	for (int i = 0; i < abs(diff); i++) {
+		char obj_path[256] = {0};
+
+		snprintf(obj_path, sizeof(obj_path), "Device.DeviceInfo.ProcessStatus.Process.%d", (diff > 0) ? g_process_ctx.process_num + i + 1 : g_process_ctx.process_num - i);
+		blobmsg_add_string(&bb, NULL, obj_path);
+		BBF_DEBUG("#%s:: %s #", (diff > 0) ? "Add" : "Del", obj_path);
+	}
+	blobmsg_close_array(&bb, a);
+
+	snprintf(method_name, sizeof(method_name), "%s.%s", "bbfdm", (diff > 0) ? "AddObj" : "DelObj");
+
+	ubus_send_event(g_process_ctx.ubus_ctx, method_name, bb.head);
+
+	blob_buf_free(&bb);
+}
+
+static void init_process_list(void)
+{
+	struct dirent *entry = NULL;
+	DIR *dir = NULL;
+	unsigned int cur_process_num = 0;
 
 	dir = opendir("/proc");
 	if (dir == NULL)
 		return;
 
+	BBF_INFO("Init process list");
+
 	while ((entry = readdir(dir)) != NULL) {
-		struct process_entry *pentry = NULL;
-		struct process_entry *pentry_exits = NULL;
+		struct stat stats = {0};
+		char buf[1024], fstat[288], command[256], comm[32];
+		char bsize[32], cputime[32], priori[32], state;
+		unsigned long stime, utime, vsize;
+		int priority, n;
 
 		int digit = entry->d_name[0] - '0';
 		if (digit < 0 || digit > 9)
@@ -254,16 +225,16 @@ static void init_processes(void)
 		if (stat(fstat, &stats))
 			continue;
 
-		n = dm_file_to_buf(fstat, buf, PROCPS_BUFSIZE);
+		n = dm_file_to_buf(fstat, buf, sizeof(buf));
 		if (n < 0)
 			continue;
 
-		comm2 = strrchr(buf, ')'); /* split into "PID (cmd" and "<rest>" */
+		char *comm2 = strrchr(buf, ')'); /* split into "PID (cmd" and "<rest>" */
 		if (!comm2) /* sanity check */
 		  continue;
 
 		comm2[0] = '\0';
-		comm1 = strchr(buf, '(');
+		char *comm1 = strchr(buf, '(');
 		if (!comm1) /* sanity check */
 		  continue;
 
@@ -290,23 +261,19 @@ static void init_processes(void)
 			continue;
 
 		procps_get_cmdline(command, sizeof(command), entry->d_name, comm);
-		curr_process_idx++;
 
 		snprintf(cputime, sizeof(cputime), "%lu", ((stime / sysconf(_SC_CLK_TCK)) + (utime / sysconf(_SC_CLK_TCK))) * 1000);
 		snprintf(bsize, sizeof(bsize), "%lu", vsize >> 10);
 		snprintf(priori, sizeof(priori), "%u", (unsigned)round((priority + 100) * 99 / 139));
 
-		if (process_count == 0 || !(pentry_exits = check_entry_exists(entry->d_name))) {
-
-			pentry = dm_dynamic_calloc(&global_memhead, 1, sizeof(struct process_entry));
-			if (!pentry)
-				return;
-
-			list_add_tail(&pentry->list, &process_list);
+		process_entry *pentry = (process_entry *)calloc(1, sizeof(process_entry));
+		if (!pentry) {
+			BBF_ERR("failed to allocate memory for process entry");
+			return;
 		}
 
-		if (pentry_exits)
-			pentry = pentry_exits;
+		list_add_tail(&pentry->list, &g_process_ctx.list);
+		cur_process_num++;
 
 		DM_STRNCPY(pentry->pid, entry->d_name, sizeof(pentry->pid));
 		DM_STRNCPY(pentry->command, command, sizeof(pentry->command));
@@ -317,11 +284,90 @@ static void init_processes(void)
 	}
 
 	closedir(dir);
-	process_count = curr_process_idx;
+
+	int diff = cur_process_num - g_process_ctx.process_num;
+	if (diff) {
+		broadcast_add_del_event(diff);
+		g_process_ctx.process_num = cur_process_num;
+	}
 }
 
+static void free_process_list(void)
+{
+	process_entry *entry = NULL, *tmp = NULL;
 
+	BBF_INFO("Free process list");
 
+	list_for_each_entry_safe(entry, tmp, &g_process_ctx.list, list) {
+		list_del(&entry->list);
+		FREE(entry);
+	}
+}
+
+static int get_instance_refresh_interval(void)
+{
+	char buf[8] = {0};
+
+	sysmngr_uci_get("sysmngr", "process", "instance_refresh_interval", "0", buf, sizeof(buf));
+
+	return (int)strtol(buf, NULL, 10);
+}
+
+static void run_refresh_process_list(void)
+{
+	free_process_list();
+	init_process_list();
+
+	if (g_process_ctx.refresh_interval > 0) {
+		BBF_INFO("Scheduling process list update after %d sec...", g_process_ctx.refresh_interval);
+		uloop_timeout_set(&g_process_ctx.instance_timer, g_process_ctx.refresh_interval * 1000);
+	}
+}
+
+static void ubus_call_complete_cb(struct ubus_request *req, int ret)
+{
+	BBF_DEBUG("'tr069' ubus callback completed");
+	run_refresh_process_list();
+	FREE(req);
+}
+
+static void process_refresh_instance_timer(struct uloop_timeout *timeout)
+{
+	struct blob_buf bb = {0};
+
+	memset(&bb, 0, sizeof(struct blob_buf));
+
+	blob_buf_init(&bb, 0);
+	int res = sysmngr_ubus_invoke_async(g_process_ctx.ubus_ctx, "tr069", "status", bb.head, NULL, ubus_call_complete_cb);
+	blob_buf_free(&bb);
+
+	if (res) {
+		BBF_DEBUG("Update process list: 'tr069' ubus object not found");
+		run_refresh_process_list();
+	} else {
+		BBF_DEBUG("Process list will be updated after 'tr069' ubus session completes");
+	}
+}
+
+/*************************************************************
+* EXTERNAL APIS
+**************************************************************/
+void sysmngr_process_init(struct ubus_context *ubus_ctx)
+{
+	g_process_ctx.ubus_ctx = ubus_ctx;
+	g_process_ctx.refresh_interval = get_instance_refresh_interval();
+	g_process_ctx.instance_timer.cb = process_refresh_instance_timer;
+	INIT_LIST_HEAD(&g_process_ctx.list);
+	g_process_ctx.process_num = 0;
+
+	run_refresh_process_list();
+}
+
+void sysmngr_process_clean(struct ubus_context *ubus_ctx)
+{
+	free_process_list();
+	uloop_timeout_cancel(&g_process_ctx.instance_timer);
+}
 
 /*************************************************************
 * ENTRY METHOD
@@ -333,8 +379,12 @@ static int browseProcessEntriesInst(struct dmctx *dmctx, DMNODE *parent_node, vo
 	char *inst = NULL;
 	int id = 0;
 
-	init_processes();
-	list_for_each_entry(entry, &process_list, list) {
+	if (g_process_ctx.refresh_interval <= 0) {
+		BBF_INFO("Scheduling process list update after 2 sec...");
+		uloop_timeout_set(&g_process_ctx.instance_timer, 2 * 1000);
+	}
+
+	list_for_each_entry(entry, &g_process_ctx.list, list) {
 
 		curr_data.additional_data = entry;
 
@@ -343,12 +393,9 @@ static int browseProcessEntriesInst(struct dmctx *dmctx, DMNODE *parent_node, vo
 		if (DM_LINK_INST_OBJ(dmctx, parent_node, &curr_data, inst) == DM_STOP)
 			break;
 	}
+
 	return 0;
 }
-
-
-
-
 
 /*************************************************************
 * GET & SET PARAM
@@ -402,19 +449,6 @@ static int get_process_state(char* refparam, struct dmctx *ctx, void *data, char
 	return 0;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 /**********************************************************************************************************************************
 *                                            OBJ & LEAF DEFINITION
 ***********************************************************************************************************************************/
@@ -443,6 +477,3 @@ DMLEAF tDeviceInfoProcessStatusParams[] = {
 {"ProcessNumberOfEntries", &DMREAD, DMT_UNINT, get_process_number_of_entries, NULL, BBFDM_BOTH},
 {0}
 };
-
-
-
