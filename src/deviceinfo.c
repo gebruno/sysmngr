@@ -235,7 +235,7 @@ DMOBJ tDeviceInfoObj[] = {
 #endif
 
 #ifdef SYSMNGR_MEMORY_STATUS
-{"MemoryStatus", &DMREAD, NULL, NULL, NULL, NULL, NULL, NULL, NULL, tDeviceInfoMemoryStatusParams, NULL, BBFDM_BOTH},
+{"MemoryStatus", &DMREAD, NULL, NULL, NULL, NULL, NULL, NULL, tDeviceInfoMemoryStatusObj, tDeviceInfoMemoryStatusParams, NULL, BBFDM_BOTH},
 #endif
 
 #ifdef SYSMNGR_PROCESS_STATUS

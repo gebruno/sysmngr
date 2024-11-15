@@ -12,6 +12,10 @@
 #ifndef __MEMORY_H
 #define __MEMORY_H
 
+extern DMOBJ tDeviceInfoMemoryStatusObj[];
 extern DMLEAF tDeviceInfoMemoryStatusParams[];
+
+void sysmngr_memory_init(void);
+void sysmngr_memory_clean(void);
 
 #endif //__MEMORY_H

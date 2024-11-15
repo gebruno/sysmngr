@@ -24,6 +24,10 @@
 #include "processes.h"
 #endif
 
+#ifdef SYSMNGR_MEMORY_STATUS
+#include "memory.h"
+#endif
+
 extern DM_MAP_OBJ tDynamicObj[];
 
 static void usage(char *prog)
@@ -36,9 +40,24 @@ static void usage(char *prog)
 	fprintf(stderr, "\n");
 }
 
+static void config_reload_cb(struct ubus_context *ctx, struct ubus_event_handler *ev,
+			  const char *type, struct blob_attr *msg)
+{
+	BBF_ERR("Reloading sysmngr upon 'sysmngr.reload' event");
+
+#ifdef SYSMNGR_MEMORY_STATUS
+	sysmngr_memory_clean();
+	sysmngr_memory_init();
+#endif
+
+}
+
 int main(int argc, char **argv)
 {
 	struct bbfdm_context bbfdm_ctx = {0};
+	struct ubus_event_handler ev = {
+		.cb = config_reload_cb,
+	};
 	int log_level = LOG_ERR;
 	int c = 0;
 
@@ -72,7 +91,14 @@ int main(int argc, char **argv)
 	sysmngr_process_init(&bbfdm_ctx.ubus_ctx);
 #endif
 
+#ifdef SYSMNGR_MEMORY_STATUS
+	sysmngr_memory_init();
+#endif
+
 	if (bbfdm_ubus_regiter_init(&bbfdm_ctx))
+		goto out;
+
+	if (ubus_register_event_handler(&bbfdm_ctx.ubus_ctx, &ev, "sysmngr.reload"))
 		goto out;
 
 	uloop_run();
@@ -82,6 +108,10 @@ out:
 
 #ifdef SYSMNGR_PROCESS_STATUS
 	sysmngr_process_clean(&bbfdm_ctx.ubus_ctx);
+#endif
+
+#ifdef SYSMNGR_MEMORY_STATUS
+	sysmngr_memory_clean();
 #endif
 
 	closelog();

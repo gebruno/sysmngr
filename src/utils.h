@@ -28,6 +28,7 @@ int sysmngr_uci_delete(struct uci_context *uci_ctx, const char *package, const c
 typedef void (*sysmngr_ubus_cb)(struct ubus_request *req, int type, struct blob_attr *msg);
 typedef void (*sysmngr_ubus_async_cb)(struct ubus_request *req, int ret);
 
+int sysmngr_ubus_invoke_sync(const char *obj, const char *method, struct blob_attr *msg, sysmngr_ubus_cb data_callback, void *callback_args);
 int sysmngr_ubus_invoke_async(struct ubus_context *ubus_ctx, const char *obj, const char *method, struct blob_attr *msg,
 			    sysmngr_ubus_cb data_callback, sysmngr_ubus_async_cb complete_callback);
 

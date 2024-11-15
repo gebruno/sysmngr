@@ -229,6 +229,30 @@ int sysmngr_uci_delete(struct uci_context *uci_ctx, const char *package, const c
 	return 0;
 }
 
+int sysmngr_ubus_invoke_sync(const char *obj, const char *method, struct blob_attr *msg, sysmngr_ubus_cb data_callback, void *callback_args)
+{
+	uint32_t id;
+	int rc = 0;
+
+	struct ubus_context *ubus_ctx = ubus_connect(NULL);
+	if (!ubus_ctx) {
+		BBF_ERR("Failed to connect with ubus, error: '%d'", errno);
+		return -1;
+	}
+
+	if (!ubus_lookup_id(ubus_ctx, obj, &id)) {
+		rc = ubus_invoke(ubus_ctx, id, method, msg, data_callback, callback_args, 5000);
+	} else {
+		BBF_ERR("Failed to lookup ubus object: '%s'", obj);
+		rc = -1;
+	}
+
+	ubus_free(ubus_ctx);
+
+	return rc;
+}
+
+
 int sysmngr_ubus_invoke_async(struct ubus_context *ubus_ctx, const char *obj, const char *method, struct blob_attr *msg,
 			    sysmngr_ubus_cb data_callback, sysmngr_ubus_async_cb complete_callback)
 {
