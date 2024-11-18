@@ -173,7 +173,7 @@ static void run_memory_monitor(void)
 
 		// Update CriticalRiseTimeStamp to the current time
 		g_memory_ctx.critical_rise_time = time(NULL);
-		snprintf(buf, sizeof(buf), "%ld", g_memory_ctx.critical_rise_time);
+		snprintf(buf, sizeof(buf), "%ld", (long int)g_memory_ctx.critical_rise_time);
 		sysmngr_uci_set("sysmngr", "memory", "critical_rise_time", buf);
 
 		if (g_memory_ctx.enable_critical_log) {
@@ -192,7 +192,7 @@ static void run_memory_monitor(void)
 
 		// Update CriticalFallTimeStamp to the current time
 		g_memory_ctx.critical_fall_time = time(NULL);
-		snprintf(buf, sizeof(buf), "%ld", g_memory_ctx.critical_fall_time);
+		snprintf(buf, sizeof(buf), "%ld", (long int)g_memory_ctx.critical_fall_time);
 		sysmngr_uci_set("sysmngr", "memory", "critical_fall_time", buf);
 
 		if (g_memory_ctx.enable_critical_log) {
