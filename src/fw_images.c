@@ -10,6 +10,7 @@
  */
 
 #include "utils.h"
+#include "fwbank.h"
 
 #define MAX_TIME_WINDOW 5
 
@@ -21,6 +22,105 @@ struct sysupgrade_ev_data {
 /*************************************************************
 * COMMON FUNCTIONS
 **************************************************************/
+static char *get_blobmsg_option_value(struct blob_attr *entry, const char *option_name)
+{
+	struct blob_attr *tb[9] = {0};
+	char *option_value = NULL;
+
+	if (!entry)
+		return "";
+
+	blobmsg_parse(sysmngr_bank_policy, 9, tb, blobmsg_data(entry), blobmsg_len(entry));
+
+	if (DM_STRCMP(sysmngr_bank_policy[0].name, option_name) == 0 && tb[0]) // Name
+		option_value = dmstrdup(blobmsg_get_string(tb[0]));
+	else if (DM_STRCMP(sysmngr_bank_policy[1].name, option_name) == 0 && tb[1]) // ID
+		dmasprintf(&option_value, "%d", blobmsg_get_u32(tb[1]));
+	else if (DM_STRCMP(sysmngr_bank_policy[2].name, option_name) == 0 && tb[2]) // Active
+		option_value = dmstrdup(blobmsg_get_bool(tb[2]) ? "true" : "false");
+	else if (DM_STRCMP(sysmngr_bank_policy[3].name, option_name) == 0 && tb[3]) // Boot
+		option_value = dmstrdup(blobmsg_get_bool(tb[3]) ? "true" : "false");
+	else if (DM_STRCMP(sysmngr_bank_policy[4].name, option_name) == 0 && tb[4]) // Upgrade
+		option_value = dmstrdup(blobmsg_get_bool(tb[4]) ? "true" : "false");
+	else if (DM_STRCMP(sysmngr_bank_policy[5].name, option_name) == 0 && tb[5]) // Firmware Version
+		option_value = dmstrdup(blobmsg_get_string(tb[5]));
+	else if (DM_STRCMP(sysmngr_bank_policy[6].name, option_name) == 0 && tb[6]) // Software Version
+		option_value = dmstrdup(blobmsg_get_string(tb[6]));
+	else if (DM_STRCMP(sysmngr_bank_policy[7].name, option_name) == 0 && tb[7]) // OMCI Software Version
+		option_value = dmstrdup(blobmsg_get_string(tb[7]));
+	else if (DM_STRCMP(sysmngr_bank_policy[8].name, option_name) == 0 && tb[8]) // Status
+		option_value = dmstrdup(blobmsg_get_string(tb[8]));
+	else // Otherwise
+		option_value = "";
+
+	return option_value ? option_value : "";
+}
+
+static char *get_fwbank_option_value(void *data, const char *option_name)
+{
+	char *option_value = NULL;
+
+	option_value = get_blobmsg_option_value((struct blob_attr *)((struct dm_data *)data)->additional_data, option_name);
+
+	return option_value ? option_value : "";
+}
+
+static char *get_fwbank_bank_id(const char *option_name)
+{
+	char *bank_id = NULL;
+
+	struct blob_buf *dump_bb = sysmngr_fwbank_dump();
+	if (!dump_bb) //dump output is empty
+		return "";
+
+	struct blob_attr *tb[1] = {0};
+
+	blobmsg_parse(sysmngr_dump_policy, 1, tb, blobmsg_data(dump_bb->head), blobmsg_len(dump_bb->head));
+
+	if (!tb[0]) // bank array is not found
+		return "";
+
+	struct blob_attr *entry = NULL;
+	int rem = 0;
+
+	blobmsg_for_each_attr(entry, tb[0], rem) { // parse bank array
+		 char *is_true = get_blobmsg_option_value(entry, option_name);
+		 if (DM_LSTRCMP(is_true, "true") == 0) {
+			bank_id = get_blobmsg_option_value(entry, "id");
+			break;
+		 }
+	}
+
+	return bank_id ? bank_id : "";
+}
+
+static bool fwbank_set_bootbank(char *bank_id)
+{
+	int res = sysmngr_fwbank_set_bootbank((uint32_t)DM_STRTOUL(bank_id), NULL);
+
+	return !res ? true : false;
+}
+
+static bool fwbank_upgrade(const char *path, const char *auto_activate, const char *bank_id, const char *keep_settings)
+{
+	json_object *json_obj = NULL;
+	int res = 0;
+
+	dmubus_call_blocking("fwbank", "upgrade", UBUS_ARGS{{"path", path, String}, {"auto_activate", auto_activate, Boolean}, {"bank", bank_id, Integer}, {"keep_settings", keep_settings, Boolean}}, 4, &json_obj);
+
+	if (json_obj) {
+		char *result = dmjson_get_value(json_obj, 1, "result");
+		res = (DM_LSTRCMP(result, "ok") == 0) ? true : false;
+	} else {
+		res = false;
+	}
+
+	if (json_obj != NULL)
+		json_object_put(json_obj);
+
+	return res;
+}
+
 static void _exec_reboot(const void *arg1, void *arg2)
 {
 	char config_name[16] = {0};
@@ -63,6 +163,7 @@ static void dmubus_receive_sysupgrade(struct ubus_context *ctx, struct ubus_even
 
 	size_t msg_len = (size_t)blobmsg_data_len(msg);
 	__blob_for_each_attr(msg_attr, blobmsg_data(msg), msg_len) {
+
 		if (DM_STRCMP("bank_id", blobmsg_name(msg_attr)) == 0) {
 			char *attr_val = (char *)blobmsg_data(msg_attr);
 			if (DM_STRCMP(attr_val, ev_data->bank_id) != 0)
@@ -77,7 +178,6 @@ static void dmubus_receive_sysupgrade(struct ubus_context *ctx, struct ubus_even
 				ev_data->status = true;
 			else
 				ev_data->status = false;
-
 		}
 	}
 
@@ -87,7 +187,7 @@ static void dmubus_receive_sysupgrade(struct ubus_context *ctx, struct ubus_even
 
 static int bbf_fw_image_download(const char *url, const char *auto_activate, const char *username, const char *password,
 		const char *file_size, const char *checksum_algorithm, const char *checksum,
-		const char *bank_id, const char *command, const char *obj_path, const char *commandKey, char *keep)
+		const char *bank_id, const char *command, const char *obj_path, const char *commandKey, const char *keep)
 {
 	char fw_image_path[256] = {0};
 	json_object *json_obj = NULL;
@@ -133,9 +233,6 @@ static int bbf_fw_image_download(const char *url, const char *auto_activate, con
 		goto end;
 	}
 
-	string_to_bool(auto_activate, &activate);
-	char *act = (activate) ? "1" : "0";
-
 	dmubus_call_blocking("system", "validate_firmware_image", UBUS_ARGS{{"path", fw_image_path, String}}, 1, &json_obj);
 	if (json_obj == NULL) {
 		res = -1;
@@ -145,20 +242,21 @@ static int bbf_fw_image_download(const char *url, const char *auto_activate, con
 
 	char *val = dmjson_get_value(json_obj, 1, "valid");
 	string_to_bool(val, &valid);
+
+	// Free json_obj
 	json_object_put(json_obj);
 	json_obj = NULL;
+
 	if (valid == false) {
 		snprintf(fault_msg, sizeof(fault_msg), "File is not a valid firmware image");
 		res = -1;
 		goto end;
 	}
 
-	// default state is to preserve the config over firmware upgrades
-	char *keep_config = DM_STRLEN((char *)keep) ? keep : "1";
+	string_to_bool(auto_activate, &activate);
 
 	// Apply Firmware Image
-	dmubus_call_blocking("fwbank", "upgrade", UBUS_ARGS{{"path", fw_image_path, String}, {"auto_activate", act, Boolean}, {"bank", bank_id, Integer}, {"keep_settings", keep_config, Boolean}}, 4, &json_obj);
-	if (json_obj == NULL) {
+	if (!fwbank_upgrade(fw_image_path, (activate) ? "1" : "0", bank_id, DM_STRLEN(keep) ? keep : "1")) {
 		res = 1;
 		snprintf(fault_msg, sizeof(fault_msg), "Internal error occurred when applying the firmware");
 		goto end;
@@ -187,13 +285,8 @@ end:
 	send_transfer_complete_event(command, obj_path, url, fault_msg, start_time, complete_time, commandKey, "Download");
 
 	// Remove temporary file if ubus upgrade failed and file exists
-	if (!json_obj && file_exists(fw_image_path) && strncmp(url, FILE_URI, strlen(FILE_URI))) {
+	if (file_exists(fw_image_path) && strncmp(url, FILE_URI, strlen(FILE_URI)))
 		remove(fw_image_path);
-		res = -1;
-	}
-
-	if (json_obj != NULL)
-		json_object_put(json_obj);
 
 	return res;
 }
@@ -203,22 +296,32 @@ end:
 **************************************************************/
 int browseDeviceInfoFirmwareImageInst(struct dmctx *dmctx, DMNODE *parent_node, void *prev_data, char *prev_instance)
 {
-	json_object *res = NULL, *bank_obj = NULL, *arrobj = NULL;
 	struct dm_data curr_data = {0};
+	struct blob_attr *tb[1] = {0};
 	char *inst = NULL;
-	int id = 0, i = 0;
+	int id = 0;
 
-	dmubus_call("fwbank", "dump", UBUS_ARGS{0}, 0, &res);
+	struct blob_buf *dump_bb = sysmngr_fwbank_dump();
+	if (!dump_bb) //dump output is empty
+		return 0;
 
-	dmjson_foreach_obj_in_array(res, arrobj, bank_obj, i, 1, "bank") {
+	blobmsg_parse(sysmngr_dump_policy, 1, tb, blobmsg_data(dump_bb->head), blobmsg_len(dump_bb->head));
 
-		curr_data.json_object = bank_obj;
+	if (tb[0]) { // bank array defined
+		struct blob_attr *entry = NULL;
+		int rem = 0;
 
-		inst = handle_instance_without_section(dmctx, parent_node, ++id);
+		blobmsg_for_each_attr(entry, tb[0], rem) { // parse bank array
 
-		if (DM_LINK_INST_OBJ(dmctx, parent_node, (void *)&curr_data, inst) == DM_STOP)
-			break;
+			curr_data.additional_data = (void *)entry;
+
+			inst = handle_instance_without_section(dmctx, parent_node, ++id);
+
+			if (DM_LINK_INST_OBJ(dmctx, parent_node, (void *)&curr_data, inst) == DM_STOP)
+				break;
+		}
 	}
+
 	return 0;
 }
 
@@ -227,50 +330,30 @@ int browseDeviceInfoFirmwareImageInst(struct dmctx *dmctx, DMNODE *parent_node, 
 **************************************************************/
 int get_device_active_fwimage(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	json_object *res = NULL, *bank_obj = NULL, *arrobj = NULL;
-	char linker[16] = {0}, *id = NULL;
-	int i = 0;
-
-	dmubus_call("fwbank", "dump", UBUS_ARGS{0}, 0, &res);
-	dmjson_foreach_obj_in_array(res, arrobj, bank_obj, i, 1, "bank") {
-		char *active = dmjson_get_value(bank_obj, 1, "active");
-		if (active && DM_LSTRCMP(active, "true") == 0) {
-			id = dmjson_get_value(bank_obj, 1, "id");
-			break;
-		}
-	}
-
-	if (DM_STRLEN(id) == 0) {
+	char *bank_id = get_fwbank_bank_id("active");
+	if (DM_STRLEN(bank_id) == 0) {
 		*value = dmstrdup("");
 		return 0;
 	}
 
-	snprintf(linker, sizeof(linker), "cpe-%s", id);
+	char linker[16] = {0};
+
+	snprintf(linker, sizeof(linker), "cpe-%s", bank_id);
 	_bbfdm_get_references(ctx, "Device.DeviceInfo.FirmwareImage.", "Alias", linker, value);
 	return 0;
 }
 
 int get_device_boot_fwimage(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	json_object *res = NULL, *bank_obj = NULL, *arrobj = NULL;
-	char linker[16] = {0}, *id = NULL;
-	int i = 0;
-
-	dmubus_call("fwbank", "dump", UBUS_ARGS{0}, 0, &res);
-	dmjson_foreach_obj_in_array(res, arrobj, bank_obj, i, 1, "bank") {
-		char *boot = dmjson_get_value(bank_obj, 1, "boot");
-		if (boot && DM_LSTRCMP(boot, "true") == 0) {
-			id = dmjson_get_value(bank_obj, 1, "id");
-			break;
-		}
-	}
-
-	if (DM_STRLEN(id) == 0) {
+	char *bank_id = get_fwbank_bank_id("boot");
+	if (DM_STRLEN(bank_id) == 0) {
 		*value = dmstrdup("");
 		return 0;
 	}
 
-	snprintf(linker, sizeof(linker), "cpe-%s", id);
+	char linker[16] = {0};
+
+	snprintf(linker, sizeof(linker), "cpe-%s", bank_id);
 	_bbfdm_get_references(ctx, "Device.DeviceInfo.FirmwareImage.", "Alias", linker, value);
 	return 0;
 }
@@ -294,7 +377,6 @@ int set_device_boot_fwimage(char *refparam, struct dmctx *ctx, void *data, char 
 		case VALUESET:
 			if (DM_STRLEN(reference.value)) {
 				struct uci_section *dmmap_s = NULL;
-				json_object *res = NULL;
 				char *available = NULL;
 
 				char *bank_id = DM_STRCHR(reference.value, '-'); // Get bank id 'X' which is linker from Alias prefix 'cpe-X'
@@ -306,11 +388,8 @@ int set_device_boot_fwimage(char *refparam, struct dmctx *ctx, void *data, char 
 				if (DM_LSTRCMP(available, "false") == 0)
 					return FAULT_9001;
 
-				dmubus_call("fwbank", "set_bootbank", UBUS_ARGS{{"bank", bank_id + 1, Integer}}, 1, &res);
-				char *success = dmjson_get_value(res, 1, "success");
-				if (DM_LSTRCMP(success, "true") != 0)
+				if (!fwbank_set_bootbank(bank_id + 1))
 					return FAULT_9001;
-
 			}
 			break;
 	}
@@ -332,7 +411,7 @@ int get_DeviceInfo_FirmwareImageNumberOfEntries(char *refparam, struct dmctx *ct
 
 static int get_DeviceInfoFirmwareImage_Alias(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	char *id = dmjson_get_value(((struct dm_data *)data)->json_object, 1, "id");
+	char *id = get_fwbank_option_value(data, "id");
 	dmasprintf(value, "cpe-%s", id ? id : instance);
 	return 0;
 }
@@ -353,9 +432,7 @@ static int set_DeviceInfoFirmwareImage_Alias(char *refparam, struct dmctx *ctx, 
 
 static int get_DeviceInfoFirmwareImage_Name(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	char *name;
-
-	name = dmstrdup(dmjson_get_value(((struct dm_data *)data)->json_object, 1, "fwver"));
+	char *name = get_fwbank_option_value(data, "fwver");
 	if (DM_STRLEN(name) > 64 ) {
 		name[64] = '\0';
 	}
@@ -366,7 +443,7 @@ static int get_DeviceInfoFirmwareImage_Name(char *refparam, struct dmctx *ctx, v
 
 static int get_DeviceInfoFirmwareImage_Version(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	*value = dmjson_get_value(((struct dm_data *)data)->json_object, 1, "swver");
+	*value = get_fwbank_option_value(data, "swver");
 	return 0;
 }
 
@@ -374,7 +451,7 @@ static int get_DeviceInfoFirmwareImage_Available(char *refparam, struct dmctx *c
 {
 	struct uci_section *s = NULL;
 
-	char *id = dmjson_get_value(((struct dm_data *)data)->json_object, 1, "id");
+	char *id = get_fwbank_option_value(data, "id");
 
 	uci_path_foreach_option_eq(bbfdm, "dmmap_fw_image", "fw_image", "id", id, s) {
 		dmuci_get_value_by_section_string(s, "available", value);
@@ -401,13 +478,13 @@ static int set_DeviceInfoFirmwareImage_Available(char *refparam, struct dmctx *c
 			string_to_bool(value, &b);
 
 			if (!b) {
-				char *boot = dmjson_get_value(((struct dm_data *)data)->json_object, 1, "boot");
-				char *active = dmjson_get_value(((struct dm_data *)data)->json_object, 1, "active");
+				char *boot = get_fwbank_option_value(data, "boot");
+				char *active = get_fwbank_option_value(data, "active");
 				if (DM_LSTRCMP(boot, "true") == 0 || DM_LSTRCMP(active, "true") == 0)
 					return FAULT_9001;
 			}
 
-			id = dmjson_get_value(((struct dm_data *)data)->json_object, 1, "id");
+			id = get_fwbank_option_value(data, "id");
 
 			uci_path_foreach_option_eq(bbfdm, "dmmap_fw_image", "fw_image", "id", id, s) {
 				dmuci_set_value_by_section_bbfdm(s, "available", b ? "true" : "false");
@@ -424,7 +501,7 @@ static int set_DeviceInfoFirmwareImage_Available(char *refparam, struct dmctx *c
 
 static int get_DeviceInfoFirmwareImage_Status(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
-	*value = dmjson_get_value(((struct dm_data *)data)->json_object, 1, "status");
+	*value = get_fwbank_option_value(data, "status");
 	return 0;
 }
 
@@ -465,12 +542,12 @@ static int operate_DeviceInfoFirmwareImage_Download(char *refparam, struct dmctx
 		snprintf(obj_path, ret - refparam + 2, "%s", refparam);
 
 	char *url = dmjson_get_value((json_object *)value, 1, "URL");
-	char *auto_activate = dmjson_get_value((json_object *)value, 1, "AutoActivate");
 	if (url[0] == '\0')
 		return USP_FAULT_INVALID_ARGUMENT;
 
 	// Assuming auto activate as false, if not provided by controller, in case of strict validation,
 	// this should result into a fault
+	char *auto_activate = dmjson_get_value((json_object *)value, 1, "AutoActivate");
 	if (DM_STRLEN(auto_activate) == 0)
 		auto_activate = dmstrdup("0");
 
@@ -482,7 +559,7 @@ static int operate_DeviceInfoFirmwareImage_Download(char *refparam, struct dmctx
 	char *commandKey = dmjson_get_value((json_object *)value, 1, "CommandKey");
 	char *keep_config = dmjson_get_value((json_object *)value, 1, BBF_VENDOR_PREFIX"KeepConfig");
 
-	char *bank_id = dmjson_get_value(((struct dm_data *)data)->json_object, 1, "id");
+	char *bank_id = get_fwbank_option_value(data, "id");
 
 	int res = bbf_fw_image_download(url, auto_activate, username, password, file_size, checksum_algorithm, checksum, bank_id, command, obj_path, commandKey, keep_config);
 
@@ -569,7 +646,8 @@ static int operate_DeviceInfoFirmwareImage_Activate(char *refparam, struct dmctx
 		last_idx++;
 	}
 
-	char *bank_id = dmjson_get_value(((struct dm_data *)data)->json_object, 1, "id");
+	char *bank_id = get_fwbank_option_value(data, "id");
+
 	if (!DM_STRLEN(bank_id))
 		return USP_FAULT_COMMAND_FAILURE;
 
@@ -605,11 +683,7 @@ static int operate_DeviceInfoFirmwareImage_Activate(char *refparam, struct dmctx
 
 		res = dmcmd_no_wait("/etc/init.d/cron", 1, "restart");
 	} else {
-		json_object *json_obj = NULL;
-
-		dmubus_call("fwbank", "set_bootbank", UBUS_ARGS{{"bank", bank_id, Integer}}, 1, &json_obj);
-		char *status = dmjson_get_value(json_obj, 1, "success");
-		if (strcasecmp(status, "true") != 0)
+		if (!fwbank_set_bootbank(bank_id))
 			return USP_FAULT_COMMAND_FAILURE;
 
 		bbfdm_task_fork(_exec_reboot, NULL, NULL, NULL);

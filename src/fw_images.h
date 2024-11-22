@@ -13,6 +13,7 @@
 #define __FW_IMAGES_H
 
 extern DMLEAF tDeviceInfoFirmwareImageParams[];
+extern char fw_image_dependency[];
 
 int browseDeviceInfoFirmwareImageInst(struct dmctx *dmctx, DMNODE *parent_node, void *prev_data, char *prev_instance);
 

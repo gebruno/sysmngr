@@ -251,7 +251,7 @@ DMOBJ tDeviceInfoObj[] = {
 #endif
 
 #ifdef SYSMNGR_FIRMWARE_IMAGE
-{"FirmwareImage", &DMREAD, NULL, NULL, "file:/usr/libexec/rpcd/fwbank", browseDeviceInfoFirmwareImageInst, NULL, NULL, NULL, tDeviceInfoFirmwareImageParams, NULL, BBFDM_BOTH},
+{"FirmwareImage", &DMREAD, NULL, NULL, fw_image_dependency, browseDeviceInfoFirmwareImageInst, NULL, NULL, NULL, tDeviceInfoFirmwareImageParams, NULL, BBFDM_BOTH},
 #endif
 
 #ifdef SYSMNGR_REBOOTS

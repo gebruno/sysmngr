@@ -28,6 +28,10 @@
 #include "memory.h"
 #endif
 
+#if defined(SYSMNGR_FWBANK_UBUS_SUPPORT) || defined(SYSMNGR_FIRMWARE_IMAGE)
+#include "fwbank.h"
+#endif
+
 #define DEFAULT_LOG_LEVEL LOG_INFO
 
 extern DM_MAP_OBJ tDynamicObj[];
@@ -97,6 +101,10 @@ int main(int argc, char **argv)
 	sysmngr_reboots_init();
 #endif
 
+#if defined(SYSMNGR_FWBANK_UBUS_SUPPORT) || defined(SYSMNGR_FIRMWARE_IMAGE)
+	sysmngr_init_fwbank_dump(&bbfdm_ctx.ubus_ctx);
+#endif
+
 #ifdef SYSMNGR_PROCESS_STATUS
 	sysmngr_process_init(&bbfdm_ctx.ubus_ctx);
 	sysmngr_cpu_init();
@@ -108,6 +116,11 @@ int main(int argc, char **argv)
 
 	if (bbfdm_ubus_regiter_init(&bbfdm_ctx))
 		goto out;
+
+#ifdef SYSMNGR_FWBANK_UBUS_SUPPORT
+	if (sysmngr_register_fwbank(&bbfdm_ctx.ubus_ctx))
+		goto out;
+#endif
 
 	if (ubus_register_event_handler(&bbfdm_ctx.ubus_ctx, &ev, "sysmngr.reload"))
 		goto out;
@@ -124,6 +137,14 @@ out:
 
 #ifdef SYSMNGR_MEMORY_STATUS
 	sysmngr_memory_clean();
+#endif
+
+#ifdef SYSMNGR_FWBANK_UBUS_SUPPORT
+	sysmngr_unregister_fwbank(&bbfdm_ctx.ubus_ctx);
+#endif
+
+#if defined(SYSMNGR_FWBANK_UBUS_SUPPORT) || defined(SYSMNGR_MEMORY_STATUS)
+	sysmngr_clean_fwbank_dump(&bbfdm_ctx.ubus_ctx);
 #endif
 
 	closelog();
