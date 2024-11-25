@@ -14,6 +14,8 @@
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 
+#define CRITICAL_STATE_LOGGER_PATH "/etc/sysmngr/critical_state_logger.sh"
+
 static bool validate_hash_value(const char *algo, const char *file_path, const char *checksum)
 {
 	unsigned char buffer[1024 * 16] = {0};
@@ -309,3 +311,20 @@ int sysmngr_get_uptime(void)
 
 	return uptime;
 }
+
+void sysmngr_generate_critical_log_file(const char *log_path, const char *type, bool critical_state)
+{
+	char cmd[1024] = {0};
+	char output[256] = {0};
+
+	// sh /etc/sysmngr/critical_state_logger.sh 'CPU' '/var/log/critical_memory.log' 'true'
+	snprintf(cmd, sizeof(cmd), "sh %s %s %s %s", CRITICAL_STATE_LOGGER_PATH,
+			type, log_path, critical_state ? "true" : false);
+
+	int res = run_cmd(cmd, output, sizeof(output));
+	if (!res || strncmp(output, "Success", 7) == 0)
+		BBF_DEBUG("Critical log generation succeeded: result=%d, output='%s'", res, output);
+	else
+        BBF_DEBUG("Critical log generation failed: result=%d, output='%s'", res, output);
+}
+

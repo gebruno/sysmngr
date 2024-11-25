@@ -34,4 +34,6 @@ int sysmngr_ubus_invoke_async(struct ubus_context *ubus_ctx, const char *obj, co
 
 int sysmngr_get_uptime(void);
 
+void sysmngr_generate_critical_log_file(const char *log_path, const char *log_name, bool critical_state);
+
 #endif //__UTILS_H

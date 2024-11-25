@@ -17,5 +17,7 @@ extern DMLEAF tDeviceInfoProcessStatusParams[];
 
 void sysmngr_process_init(struct ubus_context *ubus_ctx);
 void sysmngr_process_clean(struct ubus_context *ubus_ctx);
+void sysmngr_cpu_init(void);
+void sysmngr_cpu_clean(void);
 
 #endif //__PROCESSES_H

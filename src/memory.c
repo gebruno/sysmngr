@@ -120,47 +120,6 @@ static void send_memory_critical_state_event(unsigned int mem_utilization)
 	blob_buf_free(&bb);
 }
 
-void generate_log_file(time_t log_time, bool critical_state)
-{
-	FILE *log_file = fopen(g_memory_ctx.log_file, "w"); // Write mode, clears log each time
-	if (log_file == NULL) {
-		BBF_ERR("Failed to open log file at '%s'", g_memory_ctx.log_file);
-		return;
-	}
-
-	fprintf(log_file, "=== Memory Critical State %s at %s ===\n",
-		critical_state ? "Reached" : "no longer present", ctime(&log_time));
-
-	const char *commands[] = {
-		"top -b -n 1",  // Shows a snapshot of top output, including CPU and memory stats
-		"free", // Shows memory usage statistics in a human-readable format
-		NULL
-	};
-
-	for (int i = 0; commands[i] != NULL; i++) {
-		FILE *cmd_output = popen(commands[i], "r"); // flawfinder: ignore
-		if (cmd_output == NULL) {
-			fprintf(log_file, "Failed to execute command: %s\n", commands[i]);
-			BBF_ERR("Failed to execute system command: %s", commands[i]);
-			continue;
-		}
-
-		fprintf(log_file, "\nOutput of command: %s\n", commands[i]);
-		char buffer[256];
-		while (fgets(buffer, sizeof(buffer), cmd_output) != NULL) {
-			fprintf(log_file, "%s", buffer);
-		}
-
-		pclose(cmd_output);
-		fprintf(log_file, "\n");
-	}
-
-	fprintf(log_file, "=== End of Critical Memory Log ===\n\n");
-	fclose(log_file);
-
-	BBF_DEBUG("Generated memory log file at: '%s'", g_memory_ctx.log_file);
-}
-
 static void run_memory_monitor(void)
 {
 	unsigned int mem_utilization = calculate_memory_utilization();
@@ -169,7 +128,7 @@ static void run_memory_monitor(void)
 	if ((mem_utilization > g_memory_ctx.critical_rise_threshold) &&
 		(g_memory_ctx.critical_fall_time >= g_memory_ctx.critical_rise_time)) {
 
-		BBF_INFO("Memory utilization reached critical threshold: %u%%", mem_utilization);
+		BBF_ERR("Memory utilization reached critical threshold: %u%% !!!!!!!!", mem_utilization);
 
 		// Update CriticalRiseTimeStamp to the current time
 		g_memory_ctx.critical_rise_time = time(NULL);
@@ -178,7 +137,7 @@ static void run_memory_monitor(void)
 
 		if (g_memory_ctx.enable_critical_log) {
 			// Generate log into the vendor log file referenced by 'VendorLogFileRef' parameter indicating critical condition is reached
-			generate_log_file(g_memory_ctx.critical_rise_time, true);
+			sysmngr_generate_critical_log_file(g_memory_ctx.log_file, "Memory", true);
 		}
 
 		// Send 'MemoryCriticalState!' event
@@ -188,7 +147,7 @@ static void run_memory_monitor(void)
 	if ((mem_utilization < g_memory_ctx.critical_fall_threshold) &&
 		(g_memory_ctx.critical_rise_time > g_memory_ctx.critical_fall_time)) {
 
-		BBF_INFO("Memory utilization has fallen below critical threshold: %u%%", mem_utilization);
+		BBF_ERR("Memory utilization has fallen below critical threshold: %u%% !!!!!!!!", mem_utilization);
 
 		// Update CriticalFallTimeStamp to the current time
 		g_memory_ctx.critical_fall_time = time(NULL);
@@ -197,7 +156,7 @@ static void run_memory_monitor(void)
 
 		if (g_memory_ctx.enable_critical_log) {
 			// Generate log into the vendor log file referenced by 'VendorLogFileRef' parameter indicating that the critical condition is no longer present
-			generate_log_file(g_memory_ctx.critical_fall_time, false);
+			sysmngr_generate_critical_log_file(g_memory_ctx.log_file, "Memory", false);
 		}
 	}
 

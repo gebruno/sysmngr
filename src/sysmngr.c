@@ -20,13 +20,15 @@
 #include "reboots.h"
 #endif
 
-#ifdef SYSMNGR_REBOOTS
+#ifdef SYSMNGR_PROCESS_STATUS
 #include "processes.h"
 #endif
 
 #ifdef SYSMNGR_MEMORY_STATUS
 #include "memory.h"
 #endif
+
+#define DEFAULT_LOG_LEVEL LOG_INFO
 
 extern DM_MAP_OBJ tDynamicObj[];
 
@@ -35,7 +37,7 @@ static void usage(char *prog)
 	fprintf(stderr, "Usage: %s [options]\n", prog);
 	fprintf(stderr, "\n");
 	fprintf(stderr, "options:\n");
-	fprintf(stderr, "    -d  Use multiple time to get more verbose debug logs (Debug: -dddd)\n");
+	fprintf(stderr, "    -l  <0-7> Set the loglevel\n");
 	fprintf(stderr, "    -h  Displays this help\n");
 	fprintf(stderr, "\n");
 }
@@ -43,7 +45,12 @@ static void usage(char *prog)
 static void config_reload_cb(struct ubus_context *ctx, struct ubus_event_handler *ev,
 			  const char *type, struct blob_attr *msg)
 {
-	BBF_ERR("Reloading sysmngr upon 'sysmngr.reload' event");
+	BBF_INFO("Reloading sysmngr upon 'sysmngr.reload' event");
+
+#ifdef SYSMNGR_PROCESS_STATUS
+	sysmngr_cpu_clean();
+	sysmngr_cpu_init();
+#endif
 
 #ifdef SYSMNGR_MEMORY_STATUS
 	sysmngr_memory_clean();
@@ -58,13 +65,16 @@ int main(int argc, char **argv)
 	struct ubus_event_handler ev = {
 		.cb = config_reload_cb,
 	};
-	int log_level = LOG_ERR;
+	int log_level = DEFAULT_LOG_LEVEL;
 	int c = 0;
 
-	while ((c = getopt(argc, argv, "dh")) != -1) {
+	while ((c = getopt(argc, argv, "hl:")) != -1) {
 		switch (c) {
-		case 'd':
-			log_level += 1;
+		case 'l':
+			log_level = (int)strtod(optarg, NULL);
+			if (log_level < 0 || log_level > 7) {
+				log_level = DEFAULT_LOG_LEVEL;
+			}
 			break;
 		case 'h':
 			usage(argv[0]);
@@ -89,6 +99,7 @@ int main(int argc, char **argv)
 
 #ifdef SYSMNGR_PROCESS_STATUS
 	sysmngr_process_init(&bbfdm_ctx.ubus_ctx);
+	sysmngr_cpu_init();
 #endif
 
 #ifdef SYSMNGR_MEMORY_STATUS
@@ -108,6 +119,7 @@ out:
 
 #ifdef SYSMNGR_PROCESS_STATUS
 	sysmngr_process_clean(&bbfdm_ctx.ubus_ctx);
+	sysmngr_cpu_clean();
 #endif
 
 #ifdef SYSMNGR_MEMORY_STATUS
