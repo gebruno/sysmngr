@@ -213,6 +213,18 @@ static void fwbank_dump_timer(struct uloop_timeout *timeout)
 	sysmngr_init_fwbank_dump(data->ctx);
 }
 
+static int free_global_fwbank_dump(struct blob_buf *fwbank_dump_bb)
+{
+	if (fwbank_dump_bb->head && blob_len(fwbank_dump_bb->head)) {
+		BBF_DEBUG("Freeing fwbank dump blob buffer");
+		blob_buf_free(fwbank_dump_bb);
+	} else {
+		BBF_DEBUG("fwbank dump blob buffer is already empty");
+	}
+
+	return 0;
+}
+
 static int validate_global_fwbank_dump(struct blob_buf *fwbank_dump_bb)
 {
 	if (!fwbank_dump_bb->head || !blob_len(fwbank_dump_bb->head)) {
@@ -271,24 +283,41 @@ static void fwbank_dump_finish_callback(struct ubus_context *ctx, struct ubus_re
 
 	close(pipe_fds[0]); // Close read end
 
-	if (bytes_read < 0) {
+	if (bytes_read < 0 || strlen(buffer) == 0) {
 		BBF_ERR("Failed to read from pipe");
 		goto retry;
 	}
 
+	// Use a temporary blob_buf for validation
+	struct blob_buf temp_buf = {0};
+
+	memset(&temp_buf, 0, sizeof(struct blob_buf));
+	blob_buf_init(&temp_buf, 0);
+
+	if (!blobmsg_add_json_from_string(&temp_buf, buffer)) {
+	    BBF_ERR("Invalid JSON format in buffer");
+	    blob_buf_free(&temp_buf);
+	    goto retry;
+	}
+
+	int res = validate_global_fwbank_dump(&temp_buf);
+	if (res) {
+		BBF_ERR("Failed to validate 'fwbank' output");
+		blob_buf_free(&temp_buf);
+		goto retry;
+	}
+
+	free_global_fwbank_dump(&g_fwbank_dump.output);
+
+	// Init g_fwbank_dump.output
 	memset(&g_fwbank_dump.output, 0, sizeof(struct blob_buf));
 	blob_buf_init(&g_fwbank_dump.output, 0);
 
-	if (!blobmsg_add_json_from_string(&g_fwbank_dump.output, buffer)) {
-		BBF_ERR("Failed to create blob buf");
-		goto retry;
-	}
+	// Move validated JSON from temp_buf to g_fwbank_dump.output
+	blobmsg_add_blob(&g_fwbank_dump.output, blob_data(temp_buf.head));
 
-	int res = validate_global_fwbank_dump(&g_fwbank_dump.output);
-	if (res) {
-		BBF_ERR("Failed to validate 'fwbank' output");
-		goto retry;
-	}
+	// Free the temporary buffer
+	blob_buf_free(&temp_buf);
 
 	return;
 
@@ -316,18 +345,6 @@ static int init_global_fwbank_dump(void)
 	}
 
 	BBF_DEBUG("fwbank dump blob initialized successfully");
-	return 0;
-}
-
-static int free_global_fwbank_dump(struct blob_buf *fwbank_dump_bb)
-{
-	if (fwbank_dump_bb->head && blob_len(fwbank_dump_bb->head)) {
-		BBF_DEBUG("Freeing fwbank dump blob buffer");
-		blob_buf_free(fwbank_dump_bb);
-	} else {
-		BBF_DEBUG("fwbank dump blob buffer is already empty");
-	}
-
 	return 0;
 }
 
@@ -387,7 +404,7 @@ static void fwbank_receive_sysupgrade(struct ubus_context *ctx, struct ubus_even
 
 			if (DM_STRCMP(attr_val, "Available") == 0) {
 				BBF_DEBUG("Sysupgrade status: Available. Refreshing fwbank dump.");
-				sysmngr_fwbank_refresh_global_dump();
+				init_global_fwbank_dump();
 				break;
 			}
 		}
@@ -512,7 +529,7 @@ static void fwbank_set_bootbank_finish_callback(struct ubus_context *ctx, struct
 
 	if (is_success) {
 		// Update fwbank dump output
-		sysmngr_fwbank_refresh_global_dump();
+		init_global_fwbank_dump();
 	}
 
 	return;
@@ -600,14 +617,6 @@ int sysmngr_fwbank_upgrade(const char *path, bool auto_activate, uint32_t bank_i
 	}
 
 	return 0;
-}
-
-void sysmngr_fwbank_refresh_global_dump(void)
-{
-	BBF_INFO("fwbank refresh global dump blob buf");
-
-	free_global_fwbank_dump(&g_fwbank_dump.output);
-	init_global_fwbank_dump();
 }
 
 static int dump_handler(struct ubus_context *ctx, struct ubus_object *obj,
