@@ -267,7 +267,7 @@ int sysmngr_ubus_invoke_async(struct ubus_context *ubus_ctx, const char *obj, co
 	}
 
 	if (ubus_lookup_id(ubus_ctx, obj, &id)) {
-		BBF_ERR("Failed to lookup ubus object: '%s'", obj);
+		BBF_DEBUG("Failed to lookup ubus object: '%s'", obj);
 		return -1;
 	}
 
