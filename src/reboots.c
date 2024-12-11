@@ -437,8 +437,8 @@ static int operate_DeviceInfoRebootsReboot_Remove(char *refparam, struct dmctx *
 /* *** Device.DeviceInfo.Reboots.Reboot.{i}. *** */
 DMLEAF tDeviceInfoRebootsRebootParams[] = {
 /* PARAM, permission, type, getvalue, setvalue, bbfdm_type */
-{"Alias", &DMWRITE, DMT_STRING, get_DeviceInfoRebootsReboot_Alias, set_DeviceInfoRebootsReboot_Alias, BBFDM_USP},
-{"TimeStamp", &DMREAD, DMT_TIME, get_DeviceInfoRebootsReboot_TimeStamp, NULL, BBFDM_USP},
+{"Alias", &DMWRITE, DMT_STRING, get_DeviceInfoRebootsReboot_Alias, set_DeviceInfoRebootsReboot_Alias, BBFDM_USP, DM_FLAG_UNIQUE},
+{"TimeStamp", &DMREAD, DMT_TIME, get_DeviceInfoRebootsReboot_TimeStamp, NULL, BBFDM_USP, DM_FLAG_UNIQUE},
 {"FirmwareUpdated", &DMREAD, DMT_BOOL, get_DeviceInfoRebootsReboot_FirmwareUpdated, NULL, BBFDM_USP},
 {"Cause", &DMREAD, DMT_STRING, get_DeviceInfoRebootsReboot_Cause, NULL, BBFDM_USP},
 {"Reason", &DMREAD, DMT_STRING, get_DeviceInfoRebootsReboot_Reason, NULL, BBFDM_USP},
