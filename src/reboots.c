@@ -20,9 +20,9 @@
 #include <unistd.h>
 
 #define REBOOT_LOCK_FILE "/tmp/bbf_reboot_handler.lock" // Lock file indicating that the boot action has already been executed
-#define RESET_REASON_PATH "/tmp/reset_reason" // Path to the file containing the reason for the most recent boot/reset
-#define REBOOT_MAX_RETRIES 10 // Maximum number of retries for checking if RESET_REASON_PATH has been generated
-#define REBOOT_RETRY_DELAY 2 // Delay in seconds between retries when checking for the existence of RESET_REASON_PATH
+#define RESET_REASON_PATH "/var/reset_reason" // Path to the file containing the reason for the most recent boot/reset
+#define REBOOT_MAX_RETRIES 15 // Maximum number of retries for checking if RESET_REASON_PATH has been generated
+#define REBOOT_RETRY_DELAY 3 // Delay in seconds between retries when checking for the existence of RESET_REASON_PATH
 #define REBOOT_MAX_ENTRIES 32 // Maximum number of reboot entries to display in Device.DeviceInfo.Reboots.Reboot.{i}
 
 static int g_retry_count = 0;
@@ -59,6 +59,7 @@ static void get_boot_option_value(const char *option_name, char *buffer, size_t 
 
 	while (fgets(line, sizeof(line), file)) {
 		remove_new_line(line);
+		strip_lead_trail_whitespace(line);
 
 		if (strstr(line, option_name)) {
 			char *p = strchr(line, ':');
@@ -195,7 +196,7 @@ static void create_reboot_section(const char *trigger, const char *reason)
 
 static void sysmngr_register_boot_action(void)
 {
-	char trigger[16] = {0}, reason[16] = {0}, max_entries[16] = {0};
+	char trigger[32] = {0}, reason[32] = {0}, max_entries[16] = {0};
 
 	// Check if boot action was already executed
 	if (file_exists(REBOOT_LOCK_FILE)) {
@@ -206,6 +207,7 @@ static void sysmngr_register_boot_action(void)
 	get_boot_option_value("triggered", trigger, sizeof(trigger));
 	get_boot_option_value("reason", reason, sizeof(reason));
 
+	BBF_DEBUG("RESET triggered[%s], reason[%s] ...", trigger, reason);
 	if (strcmp(trigger, "defaultreset") == 0) {
 		reset_option_counter("boot_count", "1");
 		reset_option_counter("curr_version_boot_count", "0");
@@ -236,6 +238,25 @@ static void sysmngr_register_boot_action(void)
 	create_empty_file(REBOOT_LOCK_FILE);
 }
 
+bool check_valid_reset_reason_file(void)
+{
+	bool ret = false;
+	char reason[32] = {0};
+
+	if (file_exists(RESET_REASON_PATH) == false) {
+		return ret;
+	}
+
+	get_boot_option_value("reason", reason, sizeof(reason));
+
+	// able to read the reason
+	if (strlen(reason) != 0) {
+		ret = true;
+	}
+
+	return ret;
+}
+
 static void reboot_check_timer(struct uloop_timeout *timeout)
 {
 	sysmngr_reboots_init();
@@ -248,8 +269,13 @@ static struct uloop_timeout reboot_timer = { .cb = reboot_check_timer };
 **************************************************************/
 void sysmngr_reboots_init(void)
 {
-	if (file_exists(RESET_REASON_PATH)) {
-		BBF_INFO("Reset reason file '%s' found. Proceeding to register boot action", RESET_REASON_PATH);
+	if (file_exists(REBOOT_LOCK_FILE)) {
+		BBF_INFO("Boot action already completed previously. Skipping registration.");
+		return;
+	}
+
+	if (check_valid_reset_reason_file() == true) {
+		BBF_INFO("Valid reset reason file '%s' found. Proceeding to register boot action", RESET_REASON_PATH);
 		sysmngr_register_boot_action();
 		return;
 	}
@@ -258,10 +284,10 @@ void sysmngr_reboots_init(void)
 		g_retry_count++;
 		uloop_timeout_set(&reboot_timer, REBOOT_RETRY_DELAY * 1000);
 
-		BBF_WARNING("Attempt %d/%d: Reset reason file '%s' not found. Retrying in %d second(s)...",
+		BBF_WARNING("## Attempt %d/%d: Reset reason file '%s' not found. Retrying in %d second(s)...",
 		            g_retry_count, REBOOT_MAX_RETRIES, RESET_REASON_PATH, REBOOT_RETRY_DELAY);
 	} else {
-		BBF_ERR("Max retries reached (%d). Reset reason file '%s' not found. Proceeding with boot action registration",
+		BBF_WARNING("Max retries reached (%d). A valid reset reason file '%s' not found. Proceeding with boot action registration",
 		        REBOOT_MAX_RETRIES, RESET_REASON_PATH);
 		sysmngr_register_boot_action();
 	}
