@@ -70,7 +70,6 @@ struct blobmsg_policy sysmngr_bank_policy[] = {
 	{ "upgrade", BLOBMSG_TYPE_BOOL },
 	{ "fwver", BLOBMSG_TYPE_STRING },
 	{ "swver", BLOBMSG_TYPE_STRING },
-	{ "omci_swver", BLOBMSG_TYPE_STRING },
 	{ "status", BLOBMSG_TYPE_STRING }
 };
 
@@ -246,22 +245,25 @@ static int validate_global_fwbank_dump(struct blob_buf *fwbank_dump_bb)
 	}
 
 	struct blob_attr *entry = NULL;
-	int rem = 0;
+	int rem = 0, valid = -1;
 
 	blobmsg_for_each_attr(entry, tb[0], rem) { // parse bank array
-		struct blob_attr *t[9] = {0};
+		struct blob_attr *t[8] = {0};
 
-		if (blobmsg_parse(sysmngr_bank_policy, 9, t, blobmsg_data(entry), blobmsg_len(entry))) {
+		if (blobmsg_parse(sysmngr_bank_policy, ARRAY_SIZE(sysmngr_bank_policy), t, blobmsg_data(entry), blobmsg_len(entry))) {
 			BBF_ERR("Failed to parse bank entry");
-			return -1;
+			continue;
 		}
 
-		if (!t[0] || !t[1] || !t[2] || !t[3] || !t[4] || !t[5] || !t[6] || !t[7] || !t[8])
-			return -1;
+		// mark the valid flag, if one bank has valid data
+		if (t[0] && t[1] && t[2] && t[3] && t[4] && t[5] && t[6] && t[7]) {
+			valid = 0;
+			break;
+		}
 	}
 
 	BBF_DEBUG("Global fwbank dump validation passed");
-	return 0;
+	return valid;
 }
 
 static void fwbank_dump_finish_callback(struct ubus_context *ctx, struct ubus_request_data *req, int *pipe_fds, uint32_t bank_id)
@@ -338,7 +340,7 @@ static int init_global_fwbank_dump(void)
 {
 	BBF_DEBUG("Initializing global fwbank dump");
 
-	int res = sysmngr_task_fork(fwbank_dump_finish_callback, FWBANK_DUMP_CMD, 10, NULL, 0);
+	int res = sysmngr_task_fork(fwbank_dump_finish_callback, FWBANK_DUMP_CMD, 120, NULL, 0);
 	if (res) {
 		BBF_ERR("Failed to start task for fwbank dump command");
 		return -1;
@@ -541,7 +543,7 @@ int sysmngr_fwbank_set_bootbank(uint32_t bank_id, struct ubus_request_data *req)
 
 	snprintf(cmd, sizeof(cmd), "echo '{\"bank\":%u}' | %s 2>/dev/null", bank_id, FWBANK_SET_BOOTBANK_CMD);
 
-	int res = sysmngr_task_fork(fwbank_set_bootbank_finish_callback, cmd, 5, req, 0);
+	int res = sysmngr_task_fork(fwbank_set_bootbank_finish_callback, cmd, 10, req, 0);
 	if (res) {
 		BBF_ERR("Failed to start task for fwbank set bootbank command");
 		return -1;

@@ -1,5 +1,6 @@
 src/sysmngr
-src/*.o
-src/*.so
+*.o
+*.so
 *.swp
 *.swo
+/compile_commands.json

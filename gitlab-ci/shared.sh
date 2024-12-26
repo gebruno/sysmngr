@@ -22,6 +22,6 @@ function install_bbfdm()
 	fi
 
 	cd /opt/dev/bbfdm
-	./gitlab-ci/install-dependencies.sh install
-	./gitlab-ci/setup.sh install
+	./gitlab-ci/install-dependencies.sh
+	./gitlab-ci/setup.sh
 }
