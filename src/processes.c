@@ -79,6 +79,7 @@ static void get_jif_val(jiffy_counts_t *p_jif)
 	char line[128];
 	int ret;
 
+	// cppcheck-suppress cert-MSC24-C
 	if ((file = fopen("/proc/stat", "r"))) {
 		while(fgets(line, sizeof(line), file) != NULL)
 		{

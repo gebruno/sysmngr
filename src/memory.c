@@ -47,6 +47,7 @@ int sysmngr_meminfo(mem_info *info)
 	char *key = NULL, *val = NULL;
 	char line[256];
 
+	// cppcheck-suppress cert-MSC24-C
 	if ((f = fopen("/proc/meminfo", "r")) == NULL) {
 		BBF_ERR("Failed to open '/proc/meminfo' for reading memory info.");
 		return -1;
@@ -60,15 +61,15 @@ int sysmngr_meminfo(mem_info *info)
 			continue;
 
 		if (!strcasecmp(key, "MemTotal"))
-			info->mem_total = atol(val);
+			info->mem_total = strtol(val, NULL, 10);
 		else if (!strcasecmp(key, "MemFree"))
-			info->mem_free = atol(val);
+			info->mem_free = strtol(val, NULL, 10);
 		else if (!strcasecmp(key, "Buffers"))
-			info->buffers = atol(val);
+			info->buffers = strtol(val, NULL, 10);
 		else if (!strcasecmp(key, "Cached"))
-			info->cached = atol(val);
+			info->cached = strtol(val, NULL, 10);
 		else if (!strcasecmp(key, "SReclaimable"))
-			info->sreclaimable = atol(val);
+			info->sreclaimable = strtol(val, NULL, 10);
 	}
 
 	fclose(f);

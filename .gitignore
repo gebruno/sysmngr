@@ -1,3 +1,5 @@
 src/sysmngr
 src/*.o
 src/*.so
+*.swp
+*.swo

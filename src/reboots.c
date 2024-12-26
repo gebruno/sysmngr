@@ -53,6 +53,7 @@ static void get_boot_option_value(const char *option_name, char *buffer, size_t 
 
 	buffer[0] = '\0';
 
+	// cppcheck-suppress cert-MSC24-C
 	FILE *file = fopen(RESET_REASON_PATH, "r");
 	if (!file)
 		return;

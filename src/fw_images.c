@@ -50,8 +50,6 @@ static char *get_blobmsg_option_value(struct blob_attr *entry, const char *optio
 		option_value = dmstrdup(blobmsg_get_string(tb[7]));
 	else if (DM_STRCMP(sysmngr_bank_policy[8].name, option_name) == 0 && tb[8]) // Status
 		option_value = dmstrdup(blobmsg_get_string(tb[8]));
-	else // Otherwise
-		option_value = "";
 
 	return option_value ? option_value : "";
 }
@@ -652,6 +650,7 @@ static int operate_DeviceInfoFirmwareImage_Activate(char *refparam, struct dmctx
 		return USP_FAULT_COMMAND_FAILURE;
 
 	if (DM_STRLEN(start_time[0])) {
+		// cppcheck-suppress cert-MSC24-C
 		FILE *file = fopen(CRONTABS_ROOT, "a");
 		if (!file)
 			return USP_FAULT_COMMAND_FAILURE;

@@ -13,10 +13,10 @@
 #include "fwbank.h"
 
 #ifdef SYSMNGR_FWBANK_UBUS_SUPPORT
-char fw_image_dependency[] = "file:/etc/sysmngr/fwbank";
+const char fw_image_dependency[] = "file:/etc/sysmngr/fwbank";
 #define FWBANK_FILE_PATH "/etc/sysmngr/fwbank"
 #else
-char fw_image_dependency[] = "file:/usr/libexec/rpcd/fwbank";
+const char fw_image_dependency[] = "file:/usr/libexec/rpcd/fwbank";
 #define FWBANK_FILE_PATH "/usr/libexec/rpcd/fwbank"
 #endif
 
@@ -54,8 +54,8 @@ typedef struct sysmngr_task_data {
 	struct uloop_timeout timeoutcb; // Timeout for the task
 	sysmngr_task_callback_t finishcb; // Finish callback for parent process
 	const char *command; // Command to execute
-	int pipe_fds[2];
 	uint32_t bank_id;
+	int pipe_fds[2];
 } sysmngr_task_data_t;
 
 struct blobmsg_policy sysmngr_dump_policy[] = {
