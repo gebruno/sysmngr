@@ -10,6 +10,7 @@ variables:
   SYSMNGR_NETWORK_PROPERTIES: 'y'
   SYSMNGR_VENDOR_EXTENSIONS: 'y'
   SYSMNGR_FWBANK_UBUS_SUPPORT: 'y'
+  SYSMNGR_TEMPERATURE_STATUS: 'y'
 
 include:
   - project: 'iopsys/gitlab-ci-pipeline'

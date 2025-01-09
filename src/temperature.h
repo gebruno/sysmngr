@@ -1,0 +1,18 @@
+/*
+ * Copyright (C) 2024 iopsys Software Solutions AB
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License version 2.1
+ * as published by the Free Software Foundation
+ *
+ *	  Author: Suvendhu Hansa <suvendhu.hansa@iopsys.eu>
+ *
+ */
+
+#ifndef __TEMPERATURE_H
+#define __TEMPERATURE_H
+
+extern DMOBJ tDeviceInfoTemperatureStatusObj[];
+extern DMLEAF tDeviceInfoTemperatureStatusParams[];
+
+#endif //__TEMPERATURE_H

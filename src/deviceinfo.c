@@ -39,6 +39,10 @@
 #include "network.h"
 #endif
 
+#ifdef SYSMNGR_TEMPERATURE_STATUS
+#include "temperature.h"
+#endif
+
 /*************************************************************
 * GET & SET PARAM
 **************************************************************/
@@ -256,6 +260,10 @@ DMOBJ tDeviceInfoObj[] = {
 
 #ifdef SYSMNGR_REBOOTS
 {"Reboots", &DMREAD, NULL, NULL, NULL, NULL, NULL, NULL, tDeviceInfoRebootsObj, tDeviceInfoRebootsParams, NULL, BBFDM_USP},
+#endif
+
+#ifdef SYSMNGR_TEMPERATURE_STATUS
+{"TemperatureStatus", &DMREAD, NULL, NULL, "file:/etc/sysmngr/temperature.sh", NULL, NULL, NULL, tDeviceInfoTemperatureStatusObj, tDeviceInfoTemperatureStatusParams, NULL, BBFDM_BOTH},
 #endif
 
 {0}
