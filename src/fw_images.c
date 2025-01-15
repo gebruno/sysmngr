@@ -184,16 +184,21 @@ static void dmubus_receive_sysupgrade(struct ubus_context *ctx, struct ubus_even
 }
 
 static int bbf_fw_image_download(const char *url, const char *auto_activate, const char *username, const char *password,
-		const char *file_size, const char *checksum_algorithm, const char *checksum,
-		const char *bank_id, const char *command, const char *obj_path, const char *commandKey, const char *keep)
+		const char *file_size, const char *checksum_algorithm, const char *checksum, const char *bank_id,
+		const char *status, const char *command, const char *obj_path, const char *commandKey, const char *keep)
 {
 	char fw_image_path[256] = {0};
-	json_object *json_obj = NULL;
-	bool activate = false, valid = false;
+	bool activate = false;
 	int res = 0;
 	char fault_msg[128] = {0};
 	time_t complete_time = 0;
 	time_t start_time = time(NULL);
+
+	if (DM_STRCMP(status, "Active") == 0) {
+		res = -1;
+		snprintf(fault_msg, sizeof(fault_msg), "Firmware upgrade not allowed on active partition");
+		goto end;
+	}
 
 	DM_STRNCPY(fw_image_path, "/tmp/firmware-XXXXXX", sizeof(fw_image_path));
 
@@ -231,6 +236,10 @@ static int bbf_fw_image_download(const char *url, const char *auto_activate, con
 		goto end;
 	}
 
+#if 0
+	bool valid = false;
+	json_object *json_obj = NULL;
+
 	dmubus_call_blocking("system", "validate_firmware_image", UBUS_ARGS{{"path", fw_image_path, String}}, 1, &json_obj);
 	if (json_obj == NULL) {
 		res = -1;
@@ -250,6 +259,7 @@ static int bbf_fw_image_download(const char *url, const char *auto_activate, con
 		res = -1;
 		goto end;
 	}
+#endif
 
 	string_to_bool(auto_activate, &activate);
 
@@ -558,8 +568,14 @@ static int operate_DeviceInfoFirmwareImage_Download(char *refparam, struct dmctx
 	char *keep_config = dmjson_get_value((json_object *)value, 1, BBF_VENDOR_PREFIX"KeepConfig");
 
 	char *bank_id = get_fwbank_option_value(data, "id");
+	if (DM_STRLEN(bank_id) == 0)
+		return USP_FAULT_COMMAND_FAILURE;
 
-	int res = bbf_fw_image_download(url, auto_activate, username, password, file_size, checksum_algorithm, checksum, bank_id, command, obj_path, commandKey, keep_config);
+	char *status = get_fwbank_option_value(data, "status");
+	if (DM_STRLEN(status) == 0)
+		return USP_FAULT_COMMAND_FAILURE;
+
+	int res = bbf_fw_image_download(url, auto_activate, username, password, file_size, checksum_algorithm, checksum, bank_id, status, command, obj_path, commandKey, keep_config);
 
 	if (res == 1) {
 		bbfdm_set_fault_message(ctx, "Firmware validation failed");
