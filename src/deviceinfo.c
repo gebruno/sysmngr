@@ -226,11 +226,44 @@ static int get_deviceinfo_base_mac_addr(char *refparam, struct dmctx *ctx, void 
 	db_get_value_string("device", "deviceinfo", "BaseMACAddress", value);
 	return 0;
 }
+
+static int get_DeviceInfoFileDescriptors_Used(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
+{
+	char val[32] = {'\0'};
+	dm_read_sysfs_file("/proc/sys/fs/file-nr", val, sizeof(val));
+	if ('\0' == val[0]) {
+		*value = dmstrdup("-1");
+	} else {
+		*value = dmstrdup(val);
+	}
+	return 0;
+}
+
+static int get_DeviceInfoFileDescriptors_MaxAllowed(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
+{
+	char val[32] = {'\0'};
+	dm_read_sysfs_file("/proc/sys/fs/file-max", val, sizeof(val));
+	if ('\0' == val[0]) {
+		*value = dmstrdup("-1");
+	} else {
+		*value = dmstrdup(val);
+	}
+	return 0;
+}
 #endif
 
 /**********************************************************************************************************************************
 *                                            OBJ & LEAF DEFINITION
 ***********************************************************************************************************************************/
+#ifdef SYSMNGR_VENDOR_EXTENSIONS
+DMLEAF tDeviceInfoFileDescriptorsParams[] = {
+/* PARAM, permission, type, getvalue, setvalue, bbfdm_type*/
+{"Used", &DMREAD, DMT_INT, get_DeviceInfoFileDescriptors_Used, NULL, BBFDM_BOTH},
+{"MaxAllowed", &DMREAD, DMT_INT, get_DeviceInfoFileDescriptors_MaxAllowed, NULL, BBFDM_BOTH},
+{0}
+};
+#endif
+
 /* *** Device.DeviceInfo. *** */
 DMOBJ tDeviceInfoObj[] = {
 /* OBJ, permission, addobj, delobj, checkdep, browseinstobj, nextdynamicobj, dynamicleaf, nextobj, leaf, linker, bbfdm_type*/
@@ -264,6 +297,10 @@ DMOBJ tDeviceInfoObj[] = {
 
 #ifdef SYSMNGR_TEMPERATURE_STATUS
 {"TemperatureStatus", &DMREAD, NULL, NULL, "file:/etc/sysmngr/temperature.sh", NULL, NULL, NULL, tDeviceInfoTemperatureStatusObj, tDeviceInfoTemperatureStatusParams, NULL, BBFDM_BOTH},
+#endif
+
+#ifdef SYSMNGR_VENDOR_EXTENSIONS
+{CUSTOM_PREFIX"FileDescriptors", &DMREAD, NULL, NULL, NULL, NULL, NULL, NULL, NULL, tDeviceInfoFileDescriptorsParams, NULL, BBFDM_BOTH},
 #endif
 
 {0}
@@ -307,7 +344,7 @@ DMLEAF tDeviceInfoParams[] = {
 #endif
 
 #ifdef SYSMNGR_VENDOR_EXTENSIONS
-{BBF_VENDOR_PREFIX"BaseMACAddress", &DMREAD, DMT_STRING, get_deviceinfo_base_mac_addr, NULL, BBFDM_BOTH},
+{CUSTOM_PREFIX"BaseMACAddress", &DMREAD, DMT_STRING, get_deviceinfo_base_mac_addr, NULL, BBFDM_BOTH},
 #endif
 
 {0}

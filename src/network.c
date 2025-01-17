@@ -106,6 +106,32 @@ static int get_DeviceInfoNetworkProperties_TCPImplementation(char *refparam, str
 	return 0;
 }
 
+#ifdef SYSMNGR_VENDOR_EXTENSIONS
+static int get_Connections_MaxConnections(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
+{
+	char val[32] = {'\0'};
+	dm_read_sysfs_file("/proc/sys/net/netfilter/nf_conntrack_max", val, sizeof(val));
+	if ('\0' == val[0]) {
+		*value = dmstrdup("-1");
+	} else {
+		*value = dmstrdup(val);
+	}
+	return 0;
+}
+
+static int get_Connections_ActiveConnections(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
+{
+	char val[32] = {'\0'};
+	dm_read_sysfs_file("/proc/sys/net/netfilter/nf_conntrack_count", val, sizeof(val));
+	if ('\0' == val[0]) {
+		*value = dmstrdup("-1");
+	} else {
+		*value = dmstrdup(val);
+	}
+	return 0;
+}
+#endif
+
 /**********************************************************************************************************************************
 *                                            OBJ & LEAF DEFINITION
 ***********************************************************************************************************************************/
@@ -114,5 +140,11 @@ DMLEAF tDeviceInfoNetworkPropertiesParams[] = {
 /* PARAM, permission, type, getvalue, setvalue, bbfdm_type */
 {"MaxTCPWindowSize", &DMREAD, DMT_UNINT, get_DeviceInfoNetworkProperties_MaxTCPWindowSize, NULL, BBFDM_BOTH},
 {"TCPImplementation", &DMREAD, DMT_STRING, get_DeviceInfoNetworkProperties_TCPImplementation, NULL, BBFDM_BOTH},
+
+#ifdef SYSMNGR_VENDOR_EXTENSIONS
+{CUSTOM_PREFIX"MaxConnections", &DMREAD, DMT_INT, get_Connections_MaxConnections, NULL, BBFDM_BOTH},
+{CUSTOM_PREFIX"ActiveConnections", &DMREAD, DMT_INT, get_Connections_ActiveConnections, NULL, BBFDM_BOTH},
+#endif
+
 {0}
 };
