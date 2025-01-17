@@ -1,6 +1,5 @@
 variables:
   SOURCE_FOLDER: "src"
-  CFLAGS: "-DBBF_VENDOR_PREFIX=\\\"X_IOPSYS_EU_\\\""
   SYSMNGR_VENDOR_CONFIG_FILE: 'y'
   SYSMNGR_MEMORY_STATUS: 'y'
   SYSMNGR_PROCESS_STATUS: 'y'
@@ -11,6 +10,7 @@ variables:
   SYSMNGR_VENDOR_EXTENSIONS: 'y'
   SYSMNGR_FWBANK_UBUS_SUPPORT: 'y'
   SYSMNGR_TEMPERATURE_STATUS: 'y'
+  SYSMNGR_VENDOR_EXTENSIONS: 'y'
 
 include:
   - project: 'iopsys/gitlab-ci-pipeline'

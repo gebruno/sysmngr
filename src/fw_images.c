@@ -516,7 +516,9 @@ static operation_args firmware_image_download_args = {
 		"CheckSumAlgorithm",
 		"CheckSum",
 		"CommandKey",
-		BBF_VENDOR_PREFIX"KeepConfig",
+#ifdef SYSMNGR_VENDOR_EXTENSIONS
+		CUSTOM_PREFIX"KeepConfig",
+#endif
 		NULL
 	}
 };
@@ -555,8 +557,10 @@ static int operate_DeviceInfoFirmwareImage_Download(char *refparam, struct dmctx
 	char *checksum_algorithm = dmjson_get_value((json_object *)value, 1, "CheckSumAlgorithm");
 	char *checksum = dmjson_get_value((json_object *)value, 1, "CheckSum");
 	char *commandKey = dmjson_get_value((json_object *)value, 1, "CommandKey");
-	char *keep_config = dmjson_get_value((json_object *)value, 1, BBF_VENDOR_PREFIX"KeepConfig");
-
+	char *keep_config = NULL;
+#ifdef SYSMNGR_VENDOR_EXTENSIONS
+	keep_config = dmjson_get_value((json_object *)value, 1, CUSTOM_PREFIX"KeepConfig");
+#endif
 	char *bank_id = get_fwbank_option_value(data, "id");
 
 	int res = bbf_fw_image_download(url, auto_activate, username, password, file_size, checksum_algorithm, checksum, bank_id, command, obj_path, commandKey, keep_config);
