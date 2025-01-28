@@ -11,6 +11,8 @@
 
 #include "utils.h"
 
+#include <libbbfdm-api/bbfdm_api.h>
+
 #define DEFAULT_POLLING_INTERVAL "60"
 #define DEFAULT_CRITICAL_RISE_THRESHOLD "80"
 #define DEFAULT_CRITICAL_FALL_THRESHOLD "60"
@@ -49,7 +51,7 @@ int sysmngr_meminfo(mem_info *info)
 
 	// cppcheck-suppress cert-MSC24-C
 	if ((f = fopen("/proc/meminfo", "r")) == NULL) {
-		BBF_ERR("Failed to open '/proc/meminfo' for reading memory info.");
+		BBFDM_ERR("Failed to open '/proc/meminfo' for reading memory info.");
 		return -1;
 	}
 
@@ -81,7 +83,7 @@ static unsigned int calculate_memory_utilization(void)
 	mem_info info = {0};
 
 	if (sysmngr_meminfo(&info) != 0) {
-		BBF_ERR("Failed to retrieve memory information for utilization calculation");
+		BBFDM_ERR("Failed to retrieve memory information for utilization calculation");
 		return 0;
 	}
 
@@ -112,11 +114,8 @@ static void send_memory_critical_state_event(unsigned int mem_utilization)
 
 	blobmsg_close_array(&bb, arr);
 
-	if (sysmngr_ubus_invoke_sync("bbfdm", "notify_event", bb.head, NULL, NULL)) {
-		BBF_ERR("Failed to send 'MemoryCriticalState!' event");
-	} else {
-		BBF_DEBUG("'MemoryCriticalState!' event sent successfully with utilization at %u%%.", mem_utilization);
-	}
+	BBFDM_UBUS_INVOKE_SYNC("bbfdm", "notify_event", bb.head, 5000, NULL, NULL);
+	BBFDM_DEBUG("'MemoryCriticalState!' event sent successfully with utilization at %u%%.", mem_utilization);
 
 	blob_buf_free(&bb);
 }
@@ -129,12 +128,12 @@ static void run_memory_monitor(void)
 	if ((mem_utilization > g_memory_ctx.critical_rise_threshold) &&
 		(g_memory_ctx.critical_fall_time >= g_memory_ctx.critical_rise_time)) {
 
-		BBF_ERR("Memory utilization reached critical threshold: %u%% !!!!!!!!", mem_utilization);
+		BBFDM_ERR("Memory utilization reached critical threshold: %u%% !!!!!!!!", mem_utilization);
 
 		// Update CriticalRiseTimeStamp to the current time
 		g_memory_ctx.critical_rise_time = time(NULL);
 		snprintf(buf, sizeof(buf), "%ld", (long int)g_memory_ctx.critical_rise_time);
-		sysmngr_uci_set("sysmngr", "memory", "critical_rise_time", buf);
+		BBFDM_UCI_SET("sysmngr", "memory", "critical_rise_time", buf);
 
 		if (g_memory_ctx.enable_critical_log) {
 			// Generate log into the vendor log file referenced by 'VendorLogFileRef' parameter indicating critical condition is reached
@@ -148,12 +147,12 @@ static void run_memory_monitor(void)
 	if ((mem_utilization < g_memory_ctx.critical_fall_threshold) &&
 		(g_memory_ctx.critical_rise_time > g_memory_ctx.critical_fall_time)) {
 
-		BBF_ERR("Memory utilization has fallen below critical threshold: %u%% !!!!!!!!", mem_utilization);
+		BBFDM_ERR("Memory utilization has fallen below critical threshold: %u%% !!!!!!!!", mem_utilization);
 
 		// Update CriticalFallTimeStamp to the current time
 		g_memory_ctx.critical_fall_time = time(NULL);
 		snprintf(buf, sizeof(buf), "%ld", (long int)g_memory_ctx.critical_fall_time);
-		sysmngr_uci_set("sysmngr", "memory", "critical_fall_time", buf);
+		BBFDM_UCI_SET("sysmngr", "memory", "critical_fall_time", buf);
 
 		if (g_memory_ctx.enable_critical_log) {
 			// Generate log into the vendor log file referenced by 'VendorLogFileRef' parameter indicating that the critical condition is no longer present
@@ -161,7 +160,7 @@ static void run_memory_monitor(void)
 		}
 	}
 
-	BBF_INFO("Next memory monitor check scheduled in %d sec...", g_memory_ctx.polling_interval);
+	BBFDM_INFO("Next memory monitor check scheduled in %d sec...", g_memory_ctx.polling_interval);
 	uloop_timeout_set(&g_memory_ctx.memory_timer, g_memory_ctx.polling_interval * 1000);
 }
 
@@ -178,36 +177,36 @@ static void fill_global_memory_ctx(void)
 
 	g_memory_ctx.memory_timer.cb = memory_timer_callback;
 
-	sysmngr_uci_get("sysmngr", "memory", "enable", "0", buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "memory", "enable", "0", buf, sizeof(buf));
 	g_memory_ctx.enable = ((int)strtol(buf, NULL, 10) != 0);
-	BBF_DEBUG("Memory Monitor Config: |Enable| |%d|", g_memory_ctx.enable);
+	BBFDM_DEBUG("Memory Monitor Config: |Enable| |%d|", g_memory_ctx.enable);
 
-	sysmngr_uci_get("sysmngr", "memory", "enable_critical_log", "0", buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "memory", "enable_critical_log", "0", buf, sizeof(buf));
 	g_memory_ctx.enable_critical_log = ((int)strtol(buf, NULL, 10) != 0);
-	BBF_DEBUG("Memory Monitor Config: |EnableCriticalLog| |%d|", g_memory_ctx.enable_critical_log);
+	BBFDM_DEBUG("Memory Monitor Config: |EnableCriticalLog| |%d|", g_memory_ctx.enable_critical_log);
 
-	sysmngr_uci_get("sysmngr", "memory", "polling_interval", DEFAULT_POLLING_INTERVAL, buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "memory", "polling_interval", DEFAULT_POLLING_INTERVAL, buf, sizeof(buf));
 	g_memory_ctx.polling_interval = strtoul(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |PollingInterval| |%lu|", g_memory_ctx.polling_interval);
+	BBFDM_DEBUG("Memory Monitor Config: |PollingInterval| |%lu|", g_memory_ctx.polling_interval);
 
-	sysmngr_uci_get("sysmngr", "memory", "critical_rise_threshold", DEFAULT_CRITICAL_RISE_THRESHOLD, buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "memory", "critical_rise_threshold", DEFAULT_CRITICAL_RISE_THRESHOLD, buf, sizeof(buf));
 	g_memory_ctx.critical_rise_threshold = strtoul(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |CriticalRiseThreshold| |%lu|", g_memory_ctx.critical_rise_threshold);
+	BBFDM_DEBUG("Memory Monitor Config: |CriticalRiseThreshold| |%lu|", g_memory_ctx.critical_rise_threshold);
 
-	sysmngr_uci_get("sysmngr", "memory", "critical_fall_threshold", DEFAULT_CRITICAL_FALL_THRESHOLD, buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "memory", "critical_fall_threshold", DEFAULT_CRITICAL_FALL_THRESHOLD, buf, sizeof(buf));
 	g_memory_ctx.critical_fall_threshold = strtoul(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |CriticalFallThreshold| |%lu|", g_memory_ctx.critical_fall_threshold);
+	BBFDM_DEBUG("Memory Monitor Config: |CriticalFallThreshold| |%lu|", g_memory_ctx.critical_fall_threshold);
 
-	sysmngr_uci_get("sysmngr", "memory", "critical_rise_time", "0", buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "memory", "critical_rise_time", "0", buf, sizeof(buf));
 	g_memory_ctx.critical_rise_time = strtol(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |CriticalRiseTimeStamp| |%lu|", g_memory_ctx.critical_rise_time);
+	BBFDM_DEBUG("Memory Monitor Config: |CriticalRiseTimeStamp| |%lu|", g_memory_ctx.critical_rise_time);
 
-	sysmngr_uci_get("sysmngr", "memory", "critical_fall_time", "0", buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "memory", "critical_fall_time", "0", buf, sizeof(buf));
 	g_memory_ctx.critical_fall_time = strtol(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |CriticalFallTimeStamp| |%lu|", g_memory_ctx.critical_fall_time);
+	BBFDM_DEBUG("Memory Monitor Config: |CriticalFallTimeStamp| |%lu|", g_memory_ctx.critical_fall_time);
 
-	sysmngr_uci_get("sysmngr", "memory", "file_path", DEFAULT_CRITICAL_MEMORY_LOG_PATH, g_memory_ctx.log_file, sizeof(g_memory_ctx.log_file));
-	BBF_DEBUG("Memory Monitor Config: |FilePath| |%s|", g_memory_ctx.log_file);
+	BBFDM_UCI_GET("sysmngr", "memory", "file_path", DEFAULT_CRITICAL_MEMORY_LOG_PATH, g_memory_ctx.log_file, sizeof(g_memory_ctx.log_file));
+	BBFDM_DEBUG("Memory Monitor Config: |FilePath| |%s|", g_memory_ctx.log_file);
 	if (!file_exists(g_memory_ctx.log_file)) {
 		// Create empty file if it doesn't exist
 		create_empty_file(g_memory_ctx.log_file);
@@ -222,18 +221,18 @@ void sysmngr_memory_init(void)
 	fill_global_memory_ctx();
 
 	if (!g_memory_ctx.enable) {
-		BBF_INFO("Memory monitoring is disabled.");
+		BBFDM_INFO("Memory monitoring is disabled.");
 		return;
 	}
 
-	BBF_INFO("Memory monitoring is enabled");
+	BBFDM_INFO("Memory monitoring is enabled");
 	run_memory_monitor();
 }
 
 void sysmngr_memory_clean(void)
 {
 	uloop_timeout_cancel(&g_memory_ctx.memory_timer);
-	BBF_INFO("Memory monitoring process stopped");
+	BBFDM_INFO("Memory monitoring process stopped");
 }
 
 /*************************************************************

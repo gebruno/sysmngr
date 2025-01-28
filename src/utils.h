@@ -21,17 +21,6 @@ bool validate_server_response_code(const char *url, int response_code);
 void send_transfer_complete_event(const char *command, const char *obj_path, const char *transfer_url,
 	char *fault_string, time_t start_t, time_t complete_t, const char *commandKey, const char *transfer_type);
 
-int sysmngr_uci_get(const char *package, const char *section, const char *option, const char *default_value, char *buffer, size_t buffer_size);
-int sysmngr_uci_set(const char *package, const char *section, const char *option, const char *value);
-int sysmngr_uci_delete(struct uci_context *uci_ctx, const char *package, const char *section);
-
-typedef void (*sysmngr_ubus_cb)(struct ubus_request *req, int type, struct blob_attr *msg);
-typedef void (*sysmngr_ubus_async_cb)(struct ubus_request *req, int ret);
-
-int sysmngr_ubus_invoke_sync(const char *obj, const char *method, struct blob_attr *msg, sysmngr_ubus_cb data_callback, void *callback_args);
-int sysmngr_ubus_invoke_async(struct ubus_context *ubus_ctx, const char *obj, const char *method, struct blob_attr *msg,
-			    sysmngr_ubus_cb data_callback, sysmngr_ubus_async_cb complete_callback);
-
 int sysmngr_get_uptime(void);
 
 void sysmngr_generate_critical_log_file(const char *log_path, const char *log_name, bool critical_state);

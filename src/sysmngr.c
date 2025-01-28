@@ -49,7 +49,7 @@ static void usage(char *prog)
 static void config_reload_cb(struct ubus_context *ctx, struct ubus_event_handler *ev,
 			  const char *type, struct blob_attr *msg)
 {
-	BBF_INFO("Reloading sysmngr upon 'sysmngr.reload' event");
+	BBFDM_INFO("Reloading sysmngr upon 'sysmngr.reload' event");
 
 #ifdef SYSMNGR_PROCESS_STATUS
 	sysmngr_cpu_clean();

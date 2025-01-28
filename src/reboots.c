@@ -19,6 +19,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <libbbfdm-api/bbfdm_api.h>
+
 #define REBOOT_LOCK_FILE "/tmp/bbf_reboot_handler.lock" // Lock file indicating that the boot action has already been executed
 #define RESET_REASON_PATH "/var/reset_reason" // Path to the file containing the reason for the most recent boot/reset
 #define REBOOT_MAX_RETRIES 15 // Maximum number of retries for checking if RESET_REASON_PATH has been generated
@@ -29,19 +31,19 @@ static int g_retry_count = 0;
 
 static void reset_option_counter(const char *option_name, const char *option_value)
 {
-	sysmngr_uci_set("sysmngr", "reboots", option_name, option_value);
+	BBFDM_UCI_SET("sysmngr", "reboots", option_name, option_value);
 }
 
 static void increment_option_counter(const char *option_name)
 {
 	char buf[16] = {0};
 
-	sysmngr_uci_get("sysmngr", "reboots", option_name, "0", buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "reboots", option_name, "0", buf, sizeof(buf));
 
 	int counter = (int)strtol(buf, NULL, 10) + 1;
 
 	snprintf(buf, sizeof(buf), "%d", counter);
-	sysmngr_uci_set("sysmngr", "reboots", option_name, buf);
+	BBFDM_UCI_SET("sysmngr", "reboots", option_name, buf);
 }
 
 static void get_boot_option_value(const char *option_name, char *buffer, size_t buffer_size)
@@ -109,50 +111,32 @@ static void calculate_boot_time(char *buffer, size_t buffer_size)
 
 static void delete_excess_reboot_sections(int max_reboot_entries)
 {
-	struct uci_ptr ptr = {0};
-	char uci_str[16] = {0};
-
-	struct uci_context *ctx = uci_alloc_context();
-	if (!ctx) {
-		BBF_ERR("Failed to allocate UCI context.");
-		return;
-	}
-
-	snprintf(uci_str, sizeof(uci_str), "%s", "sysmngr");
-
-	if (uci_lookup_ptr(ctx, &ptr, uci_str, true) != UCI_OK) {
-		BBF_ERR("Failed to lookup for sysmngr config");
-		uci_free_context(ctx);
-		return;
-	}
-
+	struct bbfdm_ctx ctx = {0};
+	struct uci_section *s = NULL, *tmp_s = NULL;
 	int total_reboot_sections = 0;
-	struct uci_element *e, *tmp;
+	int removed_count = 0;
+
+	bbfdm_init_ctx(&ctx);
 
 	// First pass to count total reboot sections
-	uci_foreach_element(&ptr.p->sections, e) {
-		struct uci_section *section = uci_to_section(e);
-		if (strcmp(section->type, "reboot") == 0) {
-			total_reboot_sections++;
-		}
+	BBFDM_UCI_FOREACH_SECTION(&ctx, "sysmngr", "reboot", s) {
+		total_reboot_sections++;
 	}
 
 	// Calculate number of sections to remove
 	int sections_to_remove = total_reboot_sections - ((max_reboot_entries > 0) ? max_reboot_entries : REBOOT_MAX_ENTRIES);
 	if (sections_to_remove < 0) {  // No need to delete sections
-		uci_free_context(ctx);
+		bbfdm_free_ctx(&ctx);
 		return;
 	}
 
-	int removed_count = 0;
 	// Second pass to remove excess sections
-	uci_foreach_element_safe(&ptr.p->sections, tmp, e) {
-		struct uci_section *section = uci_to_section(e);
+	BBFDM_UCI_FOREACH_SECTION_SAFE(&ctx, "sysmngr", "reboot", tmp_s, s) {
 
-		if (strcmp(section->type, "reboot") == 0 && removed_count <= sections_to_remove) {
+		if (removed_count <= sections_to_remove) {
 
-			if (sysmngr_uci_delete(ctx, "sysmngr", section->e.name)) {
-				uci_free_context(ctx);
+			if (bbfdm_uci_delete(&ctx, "sysmngr", section_name(s), NULL)) {
+				bbfdm_free_ctx(&ctx);
 				return;
 			}
 
@@ -161,11 +145,11 @@ static void delete_excess_reboot_sections(int max_reboot_entries)
 	}
 
 	// Commit changes to save deletions
-	if (uci_commit(ctx, &ptr.p, false) != UCI_OK) {
-		BBF_ERR("Failed to commit changes");
+	if (bbfdm_uci_commit_package(&ctx, "sysmngr") != 0) {
+		BBFDM_ERR("Failed to commit changes");
 	}
 
-	uci_free_context(ctx);
+	bbfdm_free_ctx(&ctx);
 }
 
 static void create_reboot_section(const char *trigger, const char *reason)
@@ -179,20 +163,20 @@ static void create_reboot_section(const char *trigger, const char *reason)
 	snprintf(sec_name, sizeof(sec_name), "reboot_%ld", (long int)time(NULL));
 	calculate_boot_time(boot_time, sizeof(boot_time));
 
-	sysmngr_uci_set("sysmngr", sec_name, NULL, "reboot");
-	sysmngr_uci_set("sysmngr", sec_name, "time_stamp", boot_time);
-	sysmngr_uci_set("sysmngr", sec_name, "firmware_updated", strcmp(trigger, "upgrade") == 0 ? "1" : "0");
+	BBFDM_UCI_SET("sysmngr", sec_name, NULL, "reboot");
+	BBFDM_UCI_SET("sysmngr", sec_name, "time_stamp", boot_time);
+	BBFDM_UCI_SET("sysmngr", sec_name, "firmware_updated", strcmp(trigger, "upgrade") == 0 ? "1" : "0");
 
 	if (strcmp(trigger, "defaultreset") == 0) {
-		sysmngr_uci_set("sysmngr", sec_name, "cause", "FactoryReset");
+		BBFDM_UCI_SET("sysmngr", sec_name, "cause", "FactoryReset");
 	} else {
 		char last_reboot_cause[32] = {0};
-		sysmngr_uci_get("sysmngr", "reboots", "last_reboot_cause", "LocalReboot", last_reboot_cause, sizeof(last_reboot_cause));
-		sysmngr_uci_set("sysmngr", sec_name, "cause", last_reboot_cause);
-		sysmngr_uci_set("sysmngr", "reboots", "last_reboot_cause", "");
+		BBFDM_UCI_GET("sysmngr", "reboots", "last_reboot_cause", "LocalReboot", last_reboot_cause, sizeof(last_reboot_cause));
+		BBFDM_UCI_SET("sysmngr", sec_name, "cause", last_reboot_cause);
+		BBFDM_UCI_SET("sysmngr", "reboots", "last_reboot_cause", "");
 	}
 
-	sysmngr_uci_set("sysmngr", sec_name, "reason", boot_reason_message(trigger, reason));
+	BBFDM_UCI_SET("sysmngr", sec_name, "reason", boot_reason_message(trigger, reason));
 }
 
 static void sysmngr_register_boot_action(void)
@@ -201,14 +185,14 @@ static void sysmngr_register_boot_action(void)
 
 	// Check if boot action was already executed
 	if (file_exists(REBOOT_LOCK_FILE)) {
-		BBF_INFO("Boot action already completed previously. Skipping registration.");
+		BBFDM_INFO("Boot action already completed previously. Skipping registration.");
 		return;
 	}
 
 	get_boot_option_value("triggered", trigger, sizeof(trigger));
 	get_boot_option_value("reason", reason, sizeof(reason));
 
-	BBF_DEBUG("RESET triggered[%s], reason[%s] ...", trigger, reason);
+	BBFDM_DEBUG("RESET triggered[%s], reason[%s] ...", trigger, reason);
 	if (strcmp(trigger, "defaultreset") == 0) {
 		reset_option_counter("boot_count", "1");
 		reset_option_counter("curr_version_boot_count", "0");
@@ -227,7 +211,7 @@ static void sysmngr_register_boot_action(void)
 		increment_option_counter("warm_boot_count");
 	}
 
-	sysmngr_uci_get("sysmngr", "reboots", "max_reboot_entries", "3", max_entries, sizeof(max_entries));
+	BBFDM_UCI_GET("sysmngr", "reboots", "max_reboot_entries", "3", max_entries, sizeof(max_entries));
 	int max_reboot_entries = (int)strtol(max_entries, NULL, 10);
 
 	if (max_reboot_entries != 0) {
@@ -271,12 +255,12 @@ static struct uloop_timeout reboot_timer = { .cb = reboot_check_timer };
 void sysmngr_reboots_init(void)
 {
 	if (file_exists(REBOOT_LOCK_FILE)) {
-		BBF_INFO("Boot action already completed previously. Skipping registration.");
+		BBFDM_INFO("Boot action already completed previously. Skipping registration.");
 		return;
 	}
 
 	if (check_valid_reset_reason_file() == true) {
-		BBF_INFO("Valid reset reason file '%s' found. Proceeding to register boot action", RESET_REASON_PATH);
+		BBFDM_INFO("Valid reset reason file '%s' found. Proceeding to register boot action", RESET_REASON_PATH);
 		sysmngr_register_boot_action();
 		return;
 	}
@@ -285,10 +269,10 @@ void sysmngr_reboots_init(void)
 		g_retry_count++;
 		uloop_timeout_set(&reboot_timer, REBOOT_RETRY_DELAY * 1000);
 
-		BBF_WARNING("## Attempt %d/%d: Reset reason file '%s' not found. Retrying in %d second(s)...",
+		BBFDM_WARNING("## Attempt %d/%d: Reset reason file '%s' not found. Retrying in %d second(s)...",
 		            g_retry_count, REBOOT_MAX_RETRIES, RESET_REASON_PATH, REBOOT_RETRY_DELAY);
 	} else {
-		BBF_WARNING("Max retries reached (%d). A valid reset reason file '%s' not found. Proceeding with boot action registration",
+		BBFDM_WARNING("Max retries reached (%d). A valid reset reason file '%s' not found. Proceeding with boot action registration",
 		        REBOOT_MAX_RETRIES, RESET_REASON_PATH);
 		sysmngr_register_boot_action();
 	}

@@ -12,6 +12,8 @@
 #include "utils.h"
 #include "processes.h"
 
+#include <libbbfdm-api/bbfdm_api.h>
+
 #define DEFAULT_CPU_NAME "cpu"
 #define DEFAULT_CPU_POLL_INTERVAL "5"
 #define DEFAULT_CPU_NUM_SAMPLES "30"
@@ -222,7 +224,7 @@ static void broadcast_add_del_event(int diff)
 
 		snprintf(obj_path, sizeof(obj_path), "Device.DeviceInfo.ProcessStatus.Process.%d", (diff > 0) ? g_process_ctx.process_num + i + 1 : g_process_ctx.process_num - i);
 		blobmsg_add_string(&bb, NULL, obj_path);
-		BBF_DEBUG("#%s:: %s #", (diff > 0) ? "Add" : "Del", obj_path);
+		BBFDM_DEBUG("#%s:: %s #", (diff > 0) ? "Add" : "Del", obj_path);
 	}
 	blobmsg_close_array(&bb, a);
 
@@ -243,7 +245,7 @@ static void init_process_list(void)
 	if (dir == NULL)
 		return;
 
-	BBF_INFO("Init process list");
+	BBFDM_INFO("Init process list");
 
 	while ((entry = readdir(dir)) != NULL) {
 		struct stat stats = {0};
@@ -303,7 +305,7 @@ static void init_process_list(void)
 
 		process_entry *pentry = (process_entry *)calloc(1, sizeof(process_entry));
 		if (!pentry) {
-			BBF_ERR("failed to allocate memory for process entry");
+			BBFDM_ERR("failed to allocate memory for process entry");
 			return;
 		}
 
@@ -331,7 +333,7 @@ static void free_process_list(void)
 {
 	process_entry *entry = NULL, *tmp = NULL;
 
-	BBF_INFO("Free process list");
+	BBFDM_INFO("Free process list");
 
 	list_for_each_entry_safe(entry, tmp, &g_process_ctx.list, list) {
 		list_del(&entry->list);
@@ -343,7 +345,7 @@ static int get_instance_refresh_interval(void)
 {
 	char buf[8] = {0};
 
-	sysmngr_uci_get("sysmngr", "process", "instance_refresh_interval", "0", buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "process", "instance_refresh_interval", "0", buf, sizeof(buf));
 
 	return (int)strtol(buf, NULL, 10);
 }
@@ -354,14 +356,14 @@ static void run_refresh_process_list(void)
 	init_process_list();
 
 	if (g_process_ctx.refresh_interval > 0) {
-		BBF_INFO("Scheduling process list update after %d sec...", g_process_ctx.refresh_interval);
+		BBFDM_INFO("Scheduling process list update after %d sec...", g_process_ctx.refresh_interval);
 		uloop_timeout_set(&g_process_ctx.instance_timer, g_process_ctx.refresh_interval * 1000);
 	}
 }
 
 static void ubus_call_complete_cb(struct ubus_request *req, int ret)
 {
-	BBF_DEBUG("'tr069' ubus callback completed");
+	BBFDM_DEBUG("'tr069' ubus callback completed");
 	run_refresh_process_list();
 	FREE(req);
 }
@@ -373,14 +375,14 @@ static void process_refresh_instance_timer(struct uloop_timeout *timeout)
 	memset(&bb, 0, sizeof(struct blob_buf));
 
 	blob_buf_init(&bb, 0);
-	int res = sysmngr_ubus_invoke_async(g_process_ctx.ubus_ctx, "tr069", "status", bb.head, NULL, ubus_call_complete_cb);
+	int res = bbfdm_ubus_invoke_async(g_process_ctx.ubus_ctx, "tr069", "status", bb.head, NULL, ubus_call_complete_cb);
 	blob_buf_free(&bb);
 
 	if (res) {
-		BBF_DEBUG("Update process list: 'tr069' ubus object not found");
+		BBFDM_DEBUG("Update process list: 'tr069' ubus object not found");
 		run_refresh_process_list();
 	} else {
-		BBF_DEBUG("Process list will be updated after 'tr069' ubus session completes");
+		BBFDM_DEBUG("Process list will be updated after 'tr069' ubus session completes");
 	}
 }
 
@@ -412,11 +414,8 @@ static void send_cpu_critical_state_event(unsigned int cpu_utilization)
 
 	blobmsg_close_array(&bb, arr);
 
-	if (sysmngr_ubus_invoke_sync("bbfdm", "notify_event", bb.head, NULL, NULL)) {
-		BBF_ERR("Failed to send 'CPUCriticalState!' event");
-	} else {
-		BBF_DEBUG("'CPUCriticalState!' event sent successfully with utilization at %u%%.", cpu_utilization);
-	}
+	BBFDM_UBUS_INVOKE_SYNC("bbfdm", "notify_event", bb.head, 5000, NULL, NULL);
+	BBFDM_DEBUG("'CPUCriticalState!' event sent successfully with utilization at %u%%.", cpu_utilization);
 
 	blob_buf_free(&bb);
 }
@@ -468,12 +467,12 @@ static void run_cpu_monitor(void)
 	if ((avg_utilization > g_cpu_info.critical_rise_threshold) &&
 		(g_cpu_info.critical_fall_time >= g_cpu_info.critical_rise_time)) {
 
-		BBF_ERR("CPU utilization reached critical threshold: %u%% !!!!!!!!", avg_utilization);
+		BBFDM_ERR("CPU utilization reached critical threshold: %u%% !!!!!!!!", avg_utilization);
 
 		// Update CriticalRiseTimeStamp to the current time
 		g_cpu_info.critical_rise_time = time(NULL);
 		snprintf(buf, sizeof(buf), "%ld", (long int)g_cpu_info.critical_rise_time);
-		sysmngr_uci_set("sysmngr", "cpu", "critical_rise_time", buf);
+		BBFDM_UCI_SET("sysmngr", "cpu", "critical_rise_time", buf);
 
 		if (g_cpu_info.enable_critical_log) {
 			// Generate log into the vendor log file referenced by 'VendorLogFileRef' parameter indicating critical condition is reached
@@ -487,12 +486,12 @@ static void run_cpu_monitor(void)
 	if ((avg_utilization < g_cpu_info.critical_fall_threshold) &&
 		(g_cpu_info.critical_rise_time > g_cpu_info.critical_fall_time)) {
 
-		BBF_ERR("CPU utilization has fallen below critical threshold: %u%% !!!!!!!!", avg_utilization);
+		BBFDM_ERR("CPU utilization has fallen below critical threshold: %u%% !!!!!!!!", avg_utilization);
 
 		// Update CriticalFallTimeStamp to the current time
 		g_cpu_info.critical_fall_time = time(NULL);
 		snprintf(buf, sizeof(buf), "%ld", (long int)g_cpu_info.critical_fall_time);
-		sysmngr_uci_set("sysmngr", "cpu", "critical_fall_time", buf);
+		BBFDM_UCI_SET("sysmngr", "cpu", "critical_fall_time", buf);
 
 		if (g_cpu_info.enable_critical_log) {
 			// Generate log into the vendor log file referenced by 'VendorLogFileRef' parameter indicating that the critical condition is no longer present
@@ -500,7 +499,7 @@ static void run_cpu_monitor(void)
 		}
 	}
 
-	BBF_INFO("Next memory monitor check scheduled in %d sec...", g_cpu_info.poll_interval);
+	BBFDM_INFO("Next memory monitor check scheduled in %d sec...", g_cpu_info.poll_interval);
 	uloop_timeout_set(&g_cpu_info.cpu_timer, g_cpu_info.poll_interval * 1000);
 }
 
@@ -517,40 +516,40 @@ static int fill_global_cpu_info(void)
 
 	g_cpu_info.cpu_timer.cb = cpu_timer_callback;
 
-	sysmngr_uci_get("sysmngr", "cpu", "enable", "0", buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "cpu", "enable", "0", buf, sizeof(buf));
 	g_cpu_info.enable = ((int)strtol(buf, NULL, 10) != 0);
-	BBF_DEBUG("Memory Monitor Config: |Enable| |%d|", g_cpu_info.enable);
+	BBFDM_DEBUG("Memory Monitor Config: |Enable| |%d|", g_cpu_info.enable);
 
-	sysmngr_uci_get("sysmngr", "cpu", "enable_critical_log", "0", buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "cpu", "enable_critical_log", "0", buf, sizeof(buf));
 	g_cpu_info.enable_critical_log = ((int)strtol(buf, NULL, 10) != 0);
-	BBF_DEBUG("Memory Monitor Config: |EnableCriticalLog| |%d|", g_cpu_info.enable_critical_log);
+	BBFDM_DEBUG("Memory Monitor Config: |EnableCriticalLog| |%d|", g_cpu_info.enable_critical_log);
 
-	sysmngr_uci_get("sysmngr", "cpu", "poll_interval", DEFAULT_CPU_POLL_INTERVAL, buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "cpu", "poll_interval", DEFAULT_CPU_POLL_INTERVAL, buf, sizeof(buf));
 	g_cpu_info.poll_interval = strtoul(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |PollInterval| |%lu|", g_cpu_info.poll_interval);
+	BBFDM_DEBUG("Memory Monitor Config: |PollInterval| |%lu|", g_cpu_info.poll_interval);
 
-	sysmngr_uci_get("sysmngr", "cpu", "num_samples", DEFAULT_CPU_NUM_SAMPLES, buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "cpu", "num_samples", DEFAULT_CPU_NUM_SAMPLES, buf, sizeof(buf));
 	g_cpu_info.num_samples = strtoul(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |NumSamples| |%lu|", g_cpu_info.num_samples);
+	BBFDM_DEBUG("Memory Monitor Config: |NumSamples| |%lu|", g_cpu_info.num_samples);
 
-	sysmngr_uci_get("sysmngr", "cpu", "critical_rise_threshold", DEFAULT_CPU_CRITICAL_RISE_THRESHOLD, buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "cpu", "critical_rise_threshold", DEFAULT_CPU_CRITICAL_RISE_THRESHOLD, buf, sizeof(buf));
 	g_cpu_info.critical_rise_threshold = strtoul(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |CriticalRiseThreshold| |%lu|", g_cpu_info.critical_rise_threshold);
+	BBFDM_DEBUG("Memory Monitor Config: |CriticalRiseThreshold| |%lu|", g_cpu_info.critical_rise_threshold);
 
-	sysmngr_uci_get("sysmngr", "cpu", "critical_fall_threshold", DEFAULT_CPU_CRITICAL_FALL_THRESHOLD, buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "cpu", "critical_fall_threshold", DEFAULT_CPU_CRITICAL_FALL_THRESHOLD, buf, sizeof(buf));
 	g_cpu_info.critical_fall_threshold = strtoul(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |CriticalFallThreshold| |%lu|", g_cpu_info.critical_fall_threshold);
+	BBFDM_DEBUG("Memory Monitor Config: |CriticalFallThreshold| |%lu|", g_cpu_info.critical_fall_threshold);
 
-	sysmngr_uci_get("sysmngr", "cpu", "critical_rise_time", "0", buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "cpu", "critical_rise_time", "0", buf, sizeof(buf));
 	g_cpu_info.critical_rise_time = strtol(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |CriticalRiseTimeStamp| |%lu|", g_cpu_info.critical_rise_time);
+	BBFDM_DEBUG("Memory Monitor Config: |CriticalRiseTimeStamp| |%lu|", g_cpu_info.critical_rise_time);
 
-	sysmngr_uci_get("sysmngr", "cpu", "critical_fall_time", "0", buf, sizeof(buf));
+	BBFDM_UCI_GET("sysmngr", "cpu", "critical_fall_time", "0", buf, sizeof(buf));
 	g_cpu_info.critical_fall_time = strtol(buf, NULL, 10);
-	BBF_DEBUG("Memory Monitor Config: |CriticalFallTimeStamp| |%lu|", g_cpu_info.critical_fall_time);
+	BBFDM_DEBUG("Memory Monitor Config: |CriticalFallTimeStamp| |%lu|", g_cpu_info.critical_fall_time);
 
-	sysmngr_uci_get("sysmngr", "cpu", "file_path", DEFAULT_CPU_CRITICAL_LOG_PATH, g_cpu_info.log_file, sizeof(g_cpu_info.log_file));
-	BBF_DEBUG("Memory Monitor Config: |FilePath| |%s|", g_cpu_info.log_file);
+	BBFDM_UCI_GET("sysmngr", "cpu", "file_path", DEFAULT_CPU_CRITICAL_LOG_PATH, g_cpu_info.log_file, sizeof(g_cpu_info.log_file));
+	BBFDM_DEBUG("Memory Monitor Config: |FilePath| |%s|", g_cpu_info.log_file);
 	if (!file_exists(g_cpu_info.log_file)) {
 		// Create empty file if it doesn't exist
 		create_empty_file(g_cpu_info.log_file);
@@ -562,7 +561,7 @@ static int fill_global_cpu_info(void)
 	g_cpu_info.idle_utilization_samples = calloc(g_cpu_info.num_samples, sizeof(unsigned int));
 	if (!g_cpu_info.utilization_samples || !g_cpu_info.user_utilization_samples ||
 		!g_cpu_info.system_utilization_samples || !g_cpu_info.idle_utilization_samples) {
-		BBF_ERR("Failed to allocate memory for mode utilization samples");
+		BBFDM_ERR("Failed to allocate memory for mode utilization samples");
 		return -1;
 	}
 
@@ -602,18 +601,18 @@ void sysmngr_cpu_init(void)
 {
 	int res = fill_global_cpu_info();
 	if (res) {
-		BBF_ERR("Can't start CPU monitoring!!");
+		BBFDM_ERR("Can't start CPU monitoring!!");
 		return;
 	}
 
 	if (!g_cpu_info.enable) {
-		BBF_INFO("CPU monitoring is disabled.");
+		BBFDM_INFO("CPU monitoring is disabled.");
 		return;
 	} else {
-		BBF_INFO("CPU monitoring is enabled");
+		BBFDM_INFO("CPU monitoring is enabled");
 	}
 
-	BBF_INFO("Next CPU monitor check scheduled in %d sec...", g_cpu_info.poll_interval);
+	BBFDM_INFO("Next CPU monitor check scheduled in %d sec...", g_cpu_info.poll_interval);
 	uloop_timeout_set(&g_cpu_info.cpu_timer, g_cpu_info.poll_interval * 1000);
 }
 
@@ -621,7 +620,7 @@ void sysmngr_cpu_clean(void)
 {
 	free_global_cpu_info();
 	uloop_timeout_cancel(&g_cpu_info.cpu_timer);
-	BBF_INFO("CPU monitoring process stopped");
+	BBFDM_INFO("CPU monitoring process stopped");
 }
 
 /*************************************************************
@@ -635,7 +634,7 @@ static int browseProcessEntriesInst(struct dmctx *dmctx, DMNODE *parent_node, vo
 	int id = 0;
 
 	if (g_process_ctx.refresh_interval <= 0) {
-		BBF_INFO("Scheduling process list update after 2 sec...");
+		BBFDM_INFO("Scheduling process list update after 2 sec...");
 		uloop_timeout_set(&g_process_ctx.instance_timer, 2 * 1000);
 	}
 

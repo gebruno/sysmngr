@@ -80,7 +80,7 @@ static void _sysmngr_task_finish_callback(struct uloop_process *p, int ret)
 	task = container_of(p, struct sysmngr_task_data, process);
 
 	if (task == NULL) {
-		BBF_ERR("Failed to decode forked task");
+		BBFDM_ERR("Failed to decode forked task");
 		return;
 	}
 
@@ -137,7 +137,7 @@ static void timeout_callback(struct uloop_timeout *t)
 	sysmngr_task_data_t *task = container_of(t, sysmngr_task_data_t, timeoutcb);
 
 	if (task && task->process.pid > 0) {
-		BBF_ERR("Task timed out. Killing process with PID %d\n", task->process.pid);
+		BBFDM_ERR("Task timed out. Killing process with PID %d\n", task->process.pid);
 		kill(task->process.pid, SIGKILL);
 	}
 }
@@ -153,7 +153,7 @@ static int sysmngr_task_fork(sysmngr_task_callback_t finishcb, const char *comma
 	}
 
 	if (pipe(task->pipe_fds) == -1) {
-		BBF_ERR("pipe failed");
+		BBFDM_ERR("pipe failed");
 		FREE(task);
 		return -1;
 	}
@@ -165,7 +165,7 @@ static int sysmngr_task_fork(sysmngr_task_callback_t finishcb, const char *comma
 
 	child = fork();
 	if (child == -1) {
-		BBF_ERR("Failed to fork a child for task");
+		BBFDM_ERR("Failed to fork a child for task");
 		FREE(task);
 		return -1;
 	} else if (child == 0) {
@@ -203,7 +203,7 @@ static void fwbank_dump_timer(struct uloop_timeout *timeout)
 {
 	struct fwbank_dump_data *data = NULL;
 
-	BBF_DEBUG("fwbank_dump_timer triggered");
+	BBFDM_DEBUG("fwbank_dump_timer triggered");
 
 	data = container_of(timeout, struct fwbank_dump_data, tm);
 	if (data == NULL)
@@ -215,10 +215,10 @@ static void fwbank_dump_timer(struct uloop_timeout *timeout)
 static int free_global_fwbank_dump(struct blob_buf *fwbank_dump_bb)
 {
 	if (fwbank_dump_bb->head && blob_len(fwbank_dump_bb->head)) {
-		BBF_DEBUG("Freeing fwbank dump blob buffer");
+		BBFDM_DEBUG("Freeing fwbank dump blob buffer");
 		blob_buf_free(fwbank_dump_bb);
 	} else {
-		BBF_DEBUG("fwbank dump blob buffer is already empty");
+		BBFDM_DEBUG("fwbank dump blob buffer is already empty");
 	}
 
 	return 0;
@@ -227,20 +227,20 @@ static int free_global_fwbank_dump(struct blob_buf *fwbank_dump_bb)
 static int validate_global_fwbank_dump(struct blob_buf *fwbank_dump_bb)
 {
 	if (!fwbank_dump_bb->head || !blob_len(fwbank_dump_bb->head)) {
-		BBF_ERR("fwbank dump output is empty");
+		BBFDM_ERR("fwbank dump output is empty");
 		return -1;
 	}
 
-	BBF_DEBUG("Validating global fwbank dump");
+	BBFDM_DEBUG("Validating global fwbank dump");
 	struct blob_attr *tb[1] = {0};
 
 	if (blobmsg_parse(sysmngr_dump_policy, 1, tb, blobmsg_data(fwbank_dump_bb->head), blobmsg_len(fwbank_dump_bb->head))) {
-		BBF_ERR("Failed to parse fwbank dump blob");
+		BBFDM_ERR("Failed to parse fwbank dump blob");
 		return -1;
 	}
 
 	if (!tb[0]) { // bank array is not found
-		BBF_ERR("Bank array not found in fwbank dump");
+		BBFDM_ERR("Bank array not found in fwbank dump");
 		return -1;
 	}
 
@@ -251,7 +251,7 @@ static int validate_global_fwbank_dump(struct blob_buf *fwbank_dump_bb)
 		struct blob_attr *t[8] = {0};
 
 		if (blobmsg_parse(sysmngr_bank_policy, ARRAY_SIZE(sysmngr_bank_policy), t, blobmsg_data(entry), blobmsg_len(entry))) {
-			BBF_ERR("Failed to parse bank entry");
+			BBFDM_ERR("Failed to parse bank entry");
 			continue;
 		}
 
@@ -262,31 +262,31 @@ static int validate_global_fwbank_dump(struct blob_buf *fwbank_dump_bb)
 		}
 	}
 
-	BBF_DEBUG("Global fwbank dump validation passed");
+	BBFDM_DEBUG("Global fwbank dump validation passed");
 	return valid;
 }
 
 static void fwbank_dump_finish_callback(struct ubus_context *ctx, struct ubus_request_data *req, int *pipe_fds, uint32_t bank_id)
 {
-	BBF_DEBUG("Task finished Line=%d && func=%s", __LINE__, __func__);
+	BBFDM_DEBUG("Task finished Line=%d && func=%s", __LINE__, __func__);
 
 	close(pipe_fds[1]); // Close unused write end
 
 	char buffer[1024] = {0};
 	ssize_t bytes_read;
 
-	BBF_DEBUG("Reading script output...");
+	BBFDM_DEBUG("Reading script output...");
 
 	// Read the output from the script
 	while ((bytes_read = read(pipe_fds[0], buffer, sizeof(buffer) - 1)) > 0) {
 		buffer[bytes_read] = '\0'; // Null-terminate the buffer
-		BBF_DEBUG("Script output: %s", buffer);
+		BBFDM_DEBUG("Script output: %s", buffer);
 	}
 
 	close(pipe_fds[0]); // Close read end
 
 	if (bytes_read < 0 || strlen(buffer) == 0) {
-		BBF_ERR("Failed to read from pipe");
+		BBFDM_ERR("Failed to read from pipe");
 		goto retry;
 	}
 
@@ -297,14 +297,14 @@ static void fwbank_dump_finish_callback(struct ubus_context *ctx, struct ubus_re
 	blob_buf_init(&temp_buf, 0);
 
 	if (!blobmsg_add_json_from_string(&temp_buf, buffer)) {
-	    BBF_ERR("Invalid JSON format in buffer");
+	    BBFDM_ERR("Invalid JSON format in buffer");
 	    blob_buf_free(&temp_buf);
 	    goto retry;
 	}
 
 	int res = validate_global_fwbank_dump(&temp_buf);
 	if (res) {
-		BBF_ERR("Failed to validate 'fwbank' output");
+		BBFDM_ERR("Failed to validate 'fwbank' output");
 		blob_buf_free(&temp_buf);
 		goto retry;
 	}
@@ -328,25 +328,25 @@ retry:
 		g_retry_count++;
 		uloop_timeout_set(&g_fwbank_dump.tm, FWBANK_DUMP_RETRY_DELAY * 1000);
 
-		BBF_ERR("Attempt %d/%d: fwbank dump blob buf is empty. Retrying in %d second(s)...",
+		BBFDM_ERR("Attempt %d/%d: fwbank dump blob buf is empty. Retrying in %d second(s)...",
 					g_retry_count, FWBANK_DUMP_MAX_RETRIES, FWBANK_DUMP_RETRY_DELAY);
 	} else {
-		BBF_ERR("Max retries (%d) reached: The fwbank dump buffer is empty. Unable to register 'fwbank' ubus object",
+		BBFDM_ERR("Max retries (%d) reached: The fwbank dump buffer is empty. Unable to register 'fwbank' ubus object",
 				FWBANK_DUMP_MAX_RETRIES);
 	}
 }
 
 static int init_global_fwbank_dump(void)
 {
-	BBF_DEBUG("Initializing global fwbank dump");
+	BBFDM_DEBUG("Initializing global fwbank dump");
 
 	int res = sysmngr_task_fork(fwbank_dump_finish_callback, FWBANK_DUMP_CMD, 120, NULL, 0);
 	if (res) {
-		BBF_ERR("Failed to start task for fwbank dump command");
+		BBFDM_ERR("Failed to start task for fwbank dump command");
 		return -1;
 	}
 
-	BBF_DEBUG("fwbank dump blob initialized successfully");
+	BBFDM_DEBUG("fwbank dump blob initialized successfully");
 	return 0;
 }
 
@@ -354,7 +354,7 @@ static void fwbank_listen_timeout(struct uloop_timeout *timeout)
 {
 	struct fwbank_event_data *data = NULL;
 
-	BBF_DEBUG("fwbank listen timeout triggered");
+	BBFDM_DEBUG("fwbank listen timeout triggered");
 
 	data = container_of(timeout, struct fwbank_event_data, tm);
 	if (data == NULL)
@@ -372,7 +372,7 @@ static void fwbank_receive_sysupgrade(struct ubus_context *ctx, struct ubus_even
 	int rem;
 
 	if (!msg || !ev) {
-		BBF_ERR("Invalid event data in sysupgrade handler");
+		BBFDM_ERR("Invalid event data in sysupgrade handler");
 		return;
 	}
 
@@ -381,7 +381,7 @@ static void fwbank_receive_sysupgrade(struct ubus_context *ctx, struct ubus_even
 		return;
 
 	if (data->band_id < 0) { // bank_id should be a valid id
-		BBF_ERR("Invalid bank_id: %d", data->band_id);
+		BBFDM_ERR("Invalid bank_id: %d", data->band_id);
 		return;
 	}
 
@@ -391,7 +391,7 @@ static void fwbank_receive_sysupgrade(struct ubus_context *ctx, struct ubus_even
 		if (DM_STRCMP("bank_id", blobmsg_name(cur)) == 0) {
 			char *attr_val = (char *)blobmsg_data(cur);
 			if (DM_STRCMP(attr_val, bank_id_str) != 0) {
-				BBF_ERR("Mismatched bank_id (%s != %s)", attr_val, bank_id_str);
+				BBFDM_ERR("Mismatched bank_id (%s != %s)", attr_val, bank_id_str);
 				return;
 			}
 		}
@@ -400,12 +400,12 @@ static void fwbank_receive_sysupgrade(struct ubus_context *ctx, struct ubus_even
 			char *attr_val = (char *)blobmsg_data(cur);
 
 			if (DM_STRCMP(attr_val, "Downloading") == 0) {
-				BBF_DEBUG("Sysupgrade status: Downloading");
+				BBFDM_DEBUG("Sysupgrade status: Downloading");
 				return;
 			}
 
 			if (DM_STRCMP(attr_val, "Available") == 0) {
-				BBF_DEBUG("Sysupgrade status: Available. Refreshing fwbank dump.");
+				BBFDM_DEBUG("Sysupgrade status: Available. Refreshing fwbank dump.");
 				init_global_fwbank_dump();
 				break;
 			}
@@ -429,7 +429,7 @@ static struct fwbank_event_data g_fwbank_event_data = {
 
 static void fwbank_wait_for_sysupgrade_event(struct ubus_context *ctx, uint32_t band_id)
 {
-	BBF_DEBUG("Waiting for sysupgrade event for bank_id: %u", band_id);
+	BBFDM_DEBUG("Waiting for sysupgrade event for bank_id: %u", band_id);
 
 	g_fwbank_event_data.ctx = ctx;
 	g_fwbank_event_data.band_id = band_id;
@@ -448,7 +448,7 @@ static bool is_set_bootbank_success(struct blob_buf *output_bb)
 
 	// Parse the blob buffer for the "success" field
 	if (blobmsg_parse(&policy, 1, &tb, blobmsg_data(output_bb->head), blobmsg_len(output_bb->head)) != 0) {
-		BBF_ERR("Failed to parse blobmsg data");
+		BBFDM_ERR("Failed to parse blobmsg data");
 		return false;
 	}
 
@@ -469,7 +469,7 @@ static bool is_upgrade_success(struct blob_buf *output_bb)
 
 	// Parse the blob buffer for the "result" field
 	if (blobmsg_parse(&policy, 1, &tb, blobmsg_data(output_bb->head), blobmsg_len(output_bb->head)) != 0) {
-		BBF_ERR("Failed to parse blobmsg data");
+		BBFDM_ERR("Failed to parse blobmsg data");
 		return false;
 	}
 
@@ -487,25 +487,25 @@ struct blob_buf *sysmngr_fwbank_dump(void)
 
 static void fwbank_set_bootbank_finish_callback(struct ubus_context *ctx, struct ubus_request_data *req, int *pipe_fds, uint32_t bank_id)
 {
-	BBF_DEBUG("Task finished Line=%d && func=%s", __LINE__, __func__);
+	BBFDM_DEBUG("Task finished Line=%d && func=%s", __LINE__, __func__);
 
 	close(pipe_fds[1]); // Close unused write end
 
 	char buffer[1024] = {0};
 	ssize_t bytes_read;
 
-	BBF_DEBUG("Reading script output...");
+	BBFDM_DEBUG("Reading script output...");
 
 	// Read the output from the script
 	while ((bytes_read = read(pipe_fds[0], buffer, sizeof(buffer) - 1)) > 0) {
 		buffer[bytes_read] = '\0'; // Null-terminate the buffer
-		BBF_DEBUG("Script output: %s", buffer);
+		BBFDM_DEBUG("Script output: %s", buffer);
 	}
 
 	close(pipe_fds[0]); // Close read end
 
 	if (bytes_read < 0) {
-		BBF_ERR("Failed to read from pipe");
+		BBFDM_ERR("Failed to read from pipe");
 		return;
 	}
 
@@ -515,7 +515,7 @@ static void fwbank_set_bootbank_finish_callback(struct ubus_context *ctx, struct
 	blob_buf_init(&setbootbank_bb, 0);
 
 	if (!blobmsg_add_json_from_string(&setbootbank_bb, buffer)) {
-		BBF_ERR("Failed to create blob buf");
+		BBFDM_ERR("Failed to create blob buf");
 		blob_buf_free(&setbootbank_bb);
 		return;
 	}
@@ -523,7 +523,7 @@ static void fwbank_set_bootbank_finish_callback(struct ubus_context *ctx, struct
 	bool is_success = is_set_bootbank_success(&setbootbank_bb);
 
 	if (ctx && req) {
-		BBF_DEBUG("Send ubus output");
+		BBFDM_DEBUG("Send ubus output");
 		ubus_send_reply(ctx, req, setbootbank_bb.head);
 	}
 
@@ -545,7 +545,7 @@ int sysmngr_fwbank_set_bootbank(uint32_t bank_id, struct ubus_request_data *req)
 
 	int res = sysmngr_task_fork(fwbank_set_bootbank_finish_callback, cmd, 10, req, 0);
 	if (res) {
-		BBF_ERR("Failed to start task for fwbank set bootbank command");
+		BBFDM_ERR("Failed to start task for fwbank set bootbank command");
 		return -1;
 	}
 
@@ -554,25 +554,25 @@ int sysmngr_fwbank_set_bootbank(uint32_t bank_id, struct ubus_request_data *req)
 
 static void fwbank_upgrade_finish_callback(struct ubus_context *ctx, struct ubus_request_data *req, int *pipe_fds, uint32_t bank_id)
 {
-	BBF_DEBUG("Task finished Line=%d && func=%s", __LINE__, __func__);
+	BBFDM_DEBUG("Task finished Line=%d && func=%s", __LINE__, __func__);
 
 	close(pipe_fds[1]); // Close unused write end
 
 	char buffer[1024] = {0};
 	ssize_t bytes_read;
 
-	BBF_DEBUG("Reading script output...");
+	BBFDM_DEBUG("Reading script output...");
 
 	// Read the output from the script
 	while ((bytes_read = read(pipe_fds[0], buffer, sizeof(buffer) - 1)) > 0) {
 		buffer[bytes_read] = '\0'; // Null-terminate the buffer
-		BBF_DEBUG("Script output: %s", buffer);
+		BBFDM_DEBUG("Script output: %s", buffer);
 	}
 
 	close(pipe_fds[0]); // Close read end
 
 	if (bytes_read < 0) {
-		BBF_ERR("Failed to read from pipe");
+		BBFDM_ERR("Failed to read from pipe");
 		return;
 	}
 
@@ -582,7 +582,7 @@ static void fwbank_upgrade_finish_callback(struct ubus_context *ctx, struct ubus
 	blob_buf_init(&upgrade_bb, 0);
 
 	if (!blobmsg_add_json_from_string(&upgrade_bb, buffer)) {
-		BBF_ERR("Failed to create blob buf");
+		BBFDM_ERR("Failed to create blob buf");
 		blob_buf_free(&upgrade_bb);
 		return;
 	}
@@ -590,7 +590,7 @@ static void fwbank_upgrade_finish_callback(struct ubus_context *ctx, struct ubus
 	bool is_success = is_upgrade_success(&upgrade_bb);
 
 	if (ctx && req) {
-		BBF_DEBUG("Send ubus output");
+		BBFDM_DEBUG("Send ubus output");
 		ubus_send_reply(ctx, req, upgrade_bb.head);
 	}
 
@@ -614,7 +614,7 @@ int sysmngr_fwbank_upgrade(const char *path, bool auto_activate, uint32_t bank_i
 
 	int res = sysmngr_task_fork(fwbank_upgrade_finish_callback, cmd, 10, req, bank_id);
 	if (res) {
-		BBF_ERR("Failed to start task for fwbank upgrade command");
+		BBFDM_ERR("Failed to start task for fwbank upgrade command");
 		return -1;
 	}
 
@@ -647,7 +647,7 @@ static int set_bootbank_handler(struct ubus_context *ctx, struct ubus_object *ob
 	int res = 0;
 
 	if (blobmsg_parse(set_bootbank_policy, __SET_BOOT_MAX, tb, blob_data(msg), blob_len(msg))) {
-		BBF_ERR("Failed to parse the 'set_bootbank' message");
+		BBFDM_ERR("Failed to parse the 'set_bootbank' message");
 		return UBUS_STATUS_UNKNOWN_ERROR;
 	}
 
@@ -696,7 +696,7 @@ static int upgrade_handler(struct ubus_context *ctx, struct ubus_object *obj,
 	int res = 0;
 
 	if (blobmsg_parse(upgrade_policy, __UPGRADE_MAX, tb, blob_data(msg), blob_len(msg))) {
-		BBF_ERR("Failed to parse the 'upgrade' message");
+		BBFDM_ERR("Failed to parse the 'upgrade' message");
 		return UBUS_STATUS_UNKNOWN_ERROR;
 	}
 
@@ -746,11 +746,11 @@ int sysmngr_register_fwbank(struct ubus_context *ubus_ctx)
 {
 	int res = ubus_add_object(ubus_ctx, &fwbank_object);
 	if (res) {
-		BBF_ERR("Failed to register 'fwbank' ubus object!!!!!!");
+		BBFDM_ERR("Failed to register 'fwbank' ubus object!!!!!!");
 		return -1;
 	}
 
-	BBF_INFO("'fwbank' ubus object was registered");
+	BBFDM_INFO("'fwbank' ubus object was registered");
 	return res;
 }
 
@@ -758,7 +758,7 @@ int sysmngr_unregister_fwbank(struct ubus_context *ubus_ctx)
 {
 	ubus_remove_object(ubus_ctx, &fwbank_object);
 
-	BBF_INFO("'fwbank' ubus object was unregistered, and resources were freed");
+	BBFDM_INFO("'fwbank' ubus object was unregistered, and resources were freed");
 	return 0;
 }
 
@@ -770,13 +770,13 @@ int sysmngr_init_fwbank_dump(struct ubus_context *ubus_ctx)
 	g_fwbank_dump.tm.cb = fwbank_dump_timer;
 
 	if (!file_exists(FWBANK_FILE_PATH)) {
-		BBF_ERR("The fwbank file (%s) is missing", FWBANK_FILE_PATH);
+		BBFDM_ERR("The fwbank file (%s) is missing", FWBANK_FILE_PATH);
 		return -1;
 	}
 
 	res = init_global_fwbank_dump();
 	if (res) {
-		BBF_ERR("Failed to fetch 'fwbank' output or no data available");
+		BBFDM_ERR("Failed to fetch 'fwbank' output or no data available");
 		return -1;
 	}
 
