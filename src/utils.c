@@ -107,7 +107,7 @@ bool validate_file_system_size(const char *file_size)
 	return true;
 }
 
-void send_transfer_complete_event(const char *command, const char *obj_path, const char *transfer_url,
+void send_transfer_complete_event(struct ubus_context *ubus_ctx, const char *command, const char *obj_path, const char *transfer_url,
 	char *fault_string, time_t start_t, time_t complete_t, const char *commandKey, const char *transfer_type)
 {
 	char start_time[32] = {0};
@@ -145,7 +145,8 @@ void send_transfer_complete_event(const char *command, const char *obj_path, con
 	fill_blob_param(&bb, "FaultString", fault_string, DMT_TYPE[DMT_STRING], 0);
 	blobmsg_close_array(&bb, arr);
 
-	dmubus_call_blob_msg_set("bbfdm", "notify_event", &bb);
+
+	ubus_send_event(ubus_ctx, "bbfdm.event", bb.head);
 
 	blob_buf_free(&bb);
 }

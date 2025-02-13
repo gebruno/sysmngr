@@ -52,7 +52,7 @@ static int dmmap_synchronizeVcfInst(struct dmctx *dmctx, DMNODE *parent_node, vo
 	return 0;
 }
 
-static int bbf_config_backup(const char *url, const char *username, const char *password,
+static int bbf_config_backup(struct ubus_context *ctx, const char *url, const char *username, const char *password,
 		char *config_name, const char *command, const char *obj_path)
 {
 	int res = 0;
@@ -79,7 +79,7 @@ static int bbf_config_backup(const char *url, const char *username, const char *
 
 end:
 	// Send the transfer complete event
-	send_transfer_complete_event(command, obj_path, url, fault_msg, start_time, complete_time, NULL, "Upload");
+	send_transfer_complete_event(ctx, command, obj_path, url, fault_msg, start_time, complete_time, NULL, "Upload");
 
 	// Remove temporary file
 	if (file_exists(CONFIG_BACKUP) && remove(CONFIG_BACKUP))
@@ -89,7 +89,7 @@ end:
 }
 
 
-static int bbf_config_restore(const char *url, const char *username, const char *password,
+static int bbf_config_restore(struct ubus_context *ctx, const char *url, const char *username, const char *password,
 		const char *file_size, const char *checksum_algorithm, const char *checksum,
 		const char *command, const char *obj_path)
 {
@@ -134,7 +134,7 @@ static int bbf_config_restore(const char *url, const char *username, const char 
 
 end:
 	// Send the transfer complete event
-	send_transfer_complete_event(command, obj_path, url, fault_msg, start_time, complete_time, NULL, "Download");
+	send_transfer_complete_event(ctx, command, obj_path, url, fault_msg, start_time, complete_time, NULL, "Download");
 
 	// Remove temporary file
 	if (file_exists(config_restore) && strncmp(url, FILE_URI, strlen(FILE_URI)) && remove(config_restore))
@@ -274,7 +274,7 @@ static int operate_DeviceInfoVendorConfigFile_Backup(char *refparam, struct dmct
 
 	dmuci_get_value_by_section_string(((struct dm_data *)data)->config_section, "name", &vcf_name);
 
-	int res = bbf_config_backup(url, user, pass, vcf_name, backup_command, backup_path);
+	int res = bbf_config_backup(ctx->ubus_ctx, url, user, pass, vcf_name, backup_command, backup_path);
 
 	return res ? USP_FAULT_COMMAND_FAILURE : 0;
 }
@@ -320,7 +320,7 @@ static int operate_DeviceInfoVendorConfigFile_Restore(char *refparam, struct dmc
 	char *checksum_algorithm = dmjson_get_value((json_object *)value, 1, "CheckSumAlgorithm");
 	char *checksum = dmjson_get_value((json_object *)value, 1, "CheckSum");
 
-	int res = bbf_config_restore(url, user, pass, file_size, checksum_algorithm, checksum, restore_command, restore_path);
+	int res = bbf_config_restore(ctx->ubus_ctx, url, user, pass, file_size, checksum_algorithm, checksum, restore_command, restore_path);
 
 	return res ? USP_FAULT_COMMAND_FAILURE : 0;
 }

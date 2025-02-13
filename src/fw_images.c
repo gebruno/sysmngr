@@ -183,7 +183,7 @@ static void dmubus_receive_sysupgrade(struct ubus_context *ctx, struct ubus_even
 	return;
 }
 
-static int bbf_fw_image_download(const char *url, const char *auto_activate, const char *username, const char *password,
+static int bbf_fw_image_download(struct ubus_context *ctx, const char *url, const char *auto_activate, const char *username, const char *password,
 		const char *file_size, const char *checksum_algorithm, const char *checksum,
 		const char *bank_id, const char *command, const char *obj_path, const char *commandKey, const char *keep)
 {
@@ -280,7 +280,7 @@ static int bbf_fw_image_download(const char *url, const char *auto_activate, con
 
 end:
 	// Send the transfer complete event
-	send_transfer_complete_event(command, obj_path, url, fault_msg, start_time, complete_time, commandKey, "Download");
+	send_transfer_complete_event(ctx, command, obj_path, url, fault_msg, start_time, complete_time, commandKey, "Download");
 
 	// Remove temporary file if ubus upgrade failed and file exists
 	if (file_exists(fw_image_path) && strncmp(url, FILE_URI, strlen(FILE_URI)))
@@ -563,7 +563,7 @@ static int operate_DeviceInfoFirmwareImage_Download(char *refparam, struct dmctx
 #endif
 	char *bank_id = get_fwbank_option_value(data, "id");
 
-	int res = bbf_fw_image_download(url, auto_activate, username, password, file_size, checksum_algorithm, checksum, bank_id, command, obj_path, commandKey, keep_config);
+	int res = bbf_fw_image_download(ctx->ubus_ctx, url, auto_activate, username, password, file_size, checksum_algorithm, checksum, bank_id, command, obj_path, commandKey, keep_config);
 
 	if (res == 1) {
 		bbfdm_set_fault_message(ctx, "Firmware validation failed");

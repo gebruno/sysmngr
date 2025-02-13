@@ -414,7 +414,8 @@ static void send_cpu_critical_state_event(unsigned int cpu_utilization)
 
 	blobmsg_close_array(&bb, arr);
 
-	BBFDM_UBUS_INVOKE_SYNC("bbfdm", "notify_event", bb.head, 5000, NULL, NULL);
+	BBFDM_UBUS_SEND_EVENT("bbfdm.event", bb.head);
+
 	BBFDM_DEBUG("'CPUCriticalState!' event sent successfully with utilization at %u%%.", cpu_utilization);
 
 	blob_buf_free(&bb);
