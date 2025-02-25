@@ -133,9 +133,9 @@ Device.DeviceInfo.FirmwareImage.{i}.Download() input:FileSize
 Device.DeviceInfo.FirmwareImage.{i}.Download() input:Password
 Device.DeviceInfo.FirmwareImage.{i}.Download() input:URL
 Device.DeviceInfo.FirmwareImage.{i}.Download() input:Username
-Device.DeviceInfo.FirmwareImage.{i}.Download() input:X_IOPSYS_EU_KeepConfig
+Device.DeviceInfo.FirmwareImage.{i}.Download() input:X_IOWRT_EU_KeepConfig
 ```
 
-Customer can use X_IOPSYS_EU_KeepConfig=0, to do factory reset(not copy the current config to next firmware) while doing the download.
+Customer can use X_IOWRT_EU_KeepConfig=0, to do factory reset(not copy the current config to next firmware) while doing the download.
 
-> Note: Default value of X_IOPSYS_EU_KeepConfig is 1, so in case this option not used, it keeps the config(as the default behavior of the CPE).
+> Note: Default value of X_IOWRT_EU_KeepConfig is 1, so in case this option not used, it keeps the config(as the default behavior of the CPE).
