@@ -709,8 +709,15 @@ static int upgrade_handler(struct ubus_context *ctx, struct ubus_object *obj,
 	if (tb[UPGRADE_BANK])
 		bank_id = blobmsg_get_u32(tb[UPGRADE_BANK]);
 
-	if (tb[UPGRADE_KEEP_SETTINGS])
+	if (tb[UPGRADE_KEEP_SETTINGS]) {
 		keep_settings = blobmsg_get_bool(tb[UPGRADE_KEEP_SETTINGS]);
+	} else {
+		char buf[8] = {0};
+
+		BBFDM_UCI_GET("sysmngr", "globals", "keep_config", "1", buf, sizeof(buf));
+		keep_settings = ((int)strtol(buf, NULL, 10) != 0);
+		BBFDM_DEBUG("'keep_settings' option is not provided. Falling back to the value from UCI config: 'sysmngr.globals.keep_config'");
+	}
 
 	res = sysmngr_fwbank_upgrade(fw_path, auto_activate, bank_id, keep_settings, req);
 

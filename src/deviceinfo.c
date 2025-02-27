@@ -227,6 +227,30 @@ static int get_deviceinfo_base_mac_addr(char *refparam, struct dmctx *ctx, void 
 	return 0;
 }
 
+static int get_deviceinfo_keep_config(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
+{
+	*value = dmuci_get_option_value_fallback_def("sysmngr", "globals", "keep_config", "1");
+	return 0;
+}
+
+static int set_deviceinfo_keep_config(char *refparam, struct dmctx *ctx, void *data, char *instance, char *value, int action)
+{
+	bool b;
+
+	switch (action) {
+	case VALUECHECK:
+		if (bbfdm_validate_boolean(ctx, value))
+			return FAULT_9007;
+		break;
+	case VALUESET:
+		string_to_bool(value, &b);
+		dmuci_set_value("sysmngr", "globals", "keep_config", b ? "1" : "0");
+		break;
+	}
+
+	return 0;
+}
+
 static int get_DeviceInfoFileDescriptors_Used(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
 {
 	char val[32] = {'\0'};
@@ -345,6 +369,7 @@ DMLEAF tDeviceInfoParams[] = {
 
 #ifdef SYSMNGR_VENDOR_EXTENSIONS
 {CUSTOM_PREFIX"BaseMACAddress", &DMREAD, DMT_STRING, get_deviceinfo_base_mac_addr, NULL, BBFDM_BOTH},
+{CUSTOM_PREFIX"KeepConfig", &DMWRITE, DMT_BOOL, get_deviceinfo_keep_config, set_deviceinfo_keep_config, BBFDM_BOTH},
 #endif
 
 {0}
