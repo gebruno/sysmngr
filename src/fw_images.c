@@ -12,12 +12,15 @@
 #include "utils.h"
 #include "fwbank.h"
 
-#define MAX_TIME_WINDOW 5
-
 struct sysupgrade_ev_data {
 	const char *bank_id;
 	bool status;
 };
+
+#define CRONTABS_ROOT "/etc/crontabs/root"
+#define ACTIVATE_HANDLER_FILE "/usr/share/bbfdm/scripts/bbf_activate_handler.sh"
+#define COPY_CONFIG_CMD "/etc/sysmngr/fwbank call copy_config 2> /dev/null"
+#define MAX_TIME_WINDOW 5
 
 /*************************************************************
 * COMMON FUNCTIONS
@@ -92,7 +95,25 @@ static char *get_fwbank_bank_id(const char *option_name)
 	return bank_id ? bank_id : "";
 }
 
-static bool fwbank_set_bootbank(char *bank_id)
+static struct uci_section *is_varstate_section_exist(const char *package, const char *section)
+{
+	struct uci_section *s = NULL;
+
+	uci_path_foreach_sections(varstate, package, section, s) {
+		return s;
+	}
+
+	return NULL;
+}
+
+static void fwbank_copy_config(void)
+{
+	char output[64] = {0};
+
+	run_cmd(COPY_CONFIG_CMD, output, sizeof(output));
+}
+
+static bool fwbank_set_bootbank(const char *bank_id)
 {
 	int res = sysmngr_fwbank_set_bootbank((uint32_t)DM_STRTOUL(bank_id), NULL);
 
@@ -102,7 +123,7 @@ static bool fwbank_set_bootbank(char *bank_id)
 static bool fwbank_upgrade(const char *path, const char *auto_activate, const char *bank_id, const char *keep_settings)
 {
 	json_object *json_obj = NULL;
-	int res = 0;
+	bool res = false;
 
 	dmubus_call_blocking("fwbank", "upgrade", UBUS_ARGS{{"path", path, String}, {"auto_activate", auto_activate, Boolean}, {"bank", bank_id, Integer}, {"keep_settings", keep_settings, Boolean}}, 4, &json_obj);
 
@@ -533,6 +554,7 @@ static int operate_DeviceInfoFirmwareImage_Download(char *refparam, struct dmctx
 {
 	const char *command = "Download()";
 	char obj_path[256] = {0};
+	char *keep_config = NULL;
 
 	char *ret = DM_STRRCHR(refparam, '.');
 	if (!ret)
@@ -557,9 +579,17 @@ static int operate_DeviceInfoFirmwareImage_Download(char *refparam, struct dmctx
 	char *checksum_algorithm = dmjson_get_value((json_object *)value, 1, "CheckSumAlgorithm");
 	char *checksum = dmjson_get_value((json_object *)value, 1, "CheckSum");
 	char *commandKey = dmjson_get_value((json_object *)value, 1, "CommandKey");
-	char *keep_config = NULL;
+
 #ifdef SYSMNGR_VENDOR_EXTENSIONS
 	keep_config = dmjson_get_value((json_object *)value, 1, CUSTOM_PREFIX"KeepConfig");
+
+	bool keep = DM_STRLEN(keep_config) ? dmuci_string_to_boolean(keep_config) : true;
+
+	struct uci_section *s = is_varstate_section_exist("sysmngr", "globals");
+	if (!s) dmuci_add_section_varstate("sysmngr", "globals", &s);
+
+	dmuci_set_value_by_section_varstate(s, "keep_config", keep ? "1" : "0");
+	dmuci_commit_package_varstate("sysmngr");
 #endif
 	char *bank_id = get_fwbank_option_value(data, "id");
 
@@ -574,7 +604,6 @@ static int operate_DeviceInfoFirmwareImage_Download(char *refparam, struct dmctx
 
 static operation_args firmware_image_activate_args = {
 	.in = (const char *[]) {
-
 		"TimeWindow.{i}.Start",
 		"TimeWindow.{i}.End",
 		"TimeWindow.{i}.Mode",
@@ -592,16 +621,19 @@ static int get_operate_args_DeviceInfoFirmwareImage_Activate(char *refparam, str
 
 static int operate_DeviceInfoFirmwareImage_Activate(char *refparam, struct dmctx *ctx, void *data, char *instance, char *value, int action)
 {
-#define CRONTABS_ROOT "/etc/crontabs/root"
-#define ACTIVATE_HANDLER_FILE "/usr/share/bbfdm/scripts/bbf_activate_handler.sh"
-
 	char *FW_Mode[] = {"AnyTime", "Immediately", "WhenIdle", "ConfirmationNeeded", NULL};
 	char *start_time[MAX_TIME_WINDOW] = {0};
 	char *end_time[MAX_TIME_WINDOW] = {0};
 	char *mode[MAX_TIME_WINDOW] = {0};
 	char *user_message[MAX_TIME_WINDOW] = {0};
 	char *max_retries[MAX_TIME_WINDOW] = {0};
+	char *keep_config = NULL;
 	int res = 0, last_idx = -1;
+
+	dmuci_get_option_value_string_varstate("sysmngr", "globals", "keep_config", &keep_config);
+	if (DM_STRLEN(keep_config) == 0) {
+		keep_config = dmstrdup("1");
+	}
 
 	for (int i = 0; i < MAX_TIME_WINDOW; i++) {
 		char buf[32] = {0};
@@ -666,7 +698,7 @@ static int operate_DeviceInfoFirmwareImage_Activate(char *refparam, struct dmctx
 			t_time += start_t;
 			struct tm *tm_local = localtime(&t_time);
 
-			snprintf(buffer, sizeof(buffer), "%d %d %d %d * sh %s '%s' '%s' '%ld' '%d' '%s' '%s'\n",
+			snprintf(buffer, sizeof(buffer), "%d %d %d %d * sh %s '%s' '%s' '%ld' '%d' '%s' '%s' '%s'\n",
 											tm_local->tm_min,
 											tm_local->tm_hour,
 											tm_local->tm_mday,
@@ -677,7 +709,8 @@ static int operate_DeviceInfoFirmwareImage_Activate(char *refparam, struct dmctx
 											(DM_STRTOL(end_time[i]) - DM_STRTOL(start_time[i])),
 											(i == last_idx),
 											user_message[i],
-											max_retries[i]);
+											max_retries[i],
+											keep_config);
 
 			fprintf(file, "%s", buffer);
 		}
@@ -688,6 +721,9 @@ static int operate_DeviceInfoFirmwareImage_Activate(char *refparam, struct dmctx
 	} else {
 		if (!fwbank_set_bootbank(bank_id))
 			return USP_FAULT_COMMAND_FAILURE;
+
+		if (DM_STRCMP(keep_config, "1") == 0)
+			fwbank_copy_config();
 
 		bbfdm_task_fork(_exec_reboot, NULL, NULL, NULL);
 	}

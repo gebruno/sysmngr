@@ -19,12 +19,21 @@ log() {
 
 activate_and_reboot_device() {
 	local bank_id="${1}"
+	local keep_config="${2}"
 	local success
 
 	success=$(ubus call fwbank set_bootbank "{'bank':${bank_id}}" | jsonfilter -e @.success)
 	if [ "${success}" != "true" ]; then
 		log "Can't activate the bank id ${bank_id}"
 		exit 1
+	fi
+
+	if [ "${keep_config}" = "1" ]; then
+		success=$(/etc/sysmngr/fwbank call copy_config 2> /dev/null | jsonfilter -e @.success)
+		if [ "${success}" != "true" ]; then
+			log "Can't copy config"
+			exit 1
+		fi
 	fi
 
 	log "The device will restart after a few seconds"
@@ -36,6 +45,7 @@ handle_whenidle_mode() {
 	local bank_id="${1}"
 	local end_time="${2}"
 	local force_activation="${3}"
+	local keep_config="${4}"
 	local diff=0
 	
 	[ ! -x "${CHECK_IDLE_FILE}" ] && {
@@ -71,7 +81,7 @@ handle_whenidle_mode() {
 	done
 
 	[ "${force_activation}" = "1" ] && {
-		activate_and_reboot_device "${bank_id}"
+		activate_and_reboot_device "${bank_id}" "${keep_config}"
 	}
 }
 
@@ -83,11 +93,11 @@ handle_confirmation_needed_mode() {
 
 ######################## main ########################
 if [ "${MODE}" = "Immediately" ] || [ "${MODE}" = "AnyTime" ]; then
-	activate_and_reboot_device "${2}"
+	activate_and_reboot_device "${2}" "${7}"
 elif [ "${MODE}" = "WhenIdle" ]; then
-	handle_whenidle_mode "${2}" "${3}" "${4}"
+	handle_whenidle_mode "${2}" "${3}" "${4}" "${7}"
 elif [ "${MODE}" = "ConfirmationNeeded" ]; then
-	handle_confirmation_needed_mode "${2}" "${3}" "${4}" "${5}" "${6}"
+	handle_confirmation_needed_mode "${2}" "${3}" "${4}" "${5}" "${6}" "${7}"
 else
 	log "[${MODE}] mode is not supported"
 	exit 1
