@@ -46,7 +46,6 @@ typedef struct process_ctx {
 	struct uloop_timeout instance_timer;
 	struct list_head list;
 	int refresh_interval;
-	int process_num;
 } process_ctx;
 
 typedef struct cpu_info {
@@ -205,41 +204,10 @@ static void procps_get_cmdline(char *buf, int bufsz, const char *pid, const char
 	}
 }
 
-static void broadcast_add_del_event(int diff)
-{
-	struct blob_buf bb = {0};
-	char method_name[64] = {0};
-
-	// On the first run, add and delete events are managed by the instance refresh mechanism defined in bbfdm
-	if (g_process_ctx.process_num == 0)
-		return;
-
-	memset(&bb, 0, sizeof(struct blob_buf));
-	blob_buf_init(&bb, 0);
-
-	void *a = blobmsg_open_array(&bb, "instances");
-
-	for (int i = 0; i < abs(diff); i++) {
-		char obj_path[256] = {0};
-
-		snprintf(obj_path, sizeof(obj_path), "Device.DeviceInfo.ProcessStatus.Process.%d", (diff > 0) ? g_process_ctx.process_num + i + 1 : g_process_ctx.process_num - i);
-		blobmsg_add_string(&bb, NULL, obj_path);
-		BBFDM_DEBUG("#%s:: %s #", (diff > 0) ? "Add" : "Del", obj_path);
-	}
-	blobmsg_close_array(&bb, a);
-
-	snprintf(method_name, sizeof(method_name), "%s.%s", "bbfdm", (diff > 0) ? "AddObj" : "DelObj");
-
-	ubus_send_event(g_process_ctx.ubus_ctx, method_name, bb.head);
-
-	blob_buf_free(&bb);
-}
-
 static void init_process_list(void)
 {
 	struct dirent *entry = NULL;
 	DIR *dir = NULL;
-	unsigned int cur_process_num = 0;
 
 	dir = opendir("/proc");
 	if (dir == NULL)
@@ -310,7 +278,6 @@ static void init_process_list(void)
 		}
 
 		list_add_tail(&pentry->list, &g_process_ctx.list);
-		cur_process_num++;
 
 		DM_STRNCPY(pentry->pid, entry->d_name, sizeof(pentry->pid));
 		DM_STRNCPY(pentry->command, command, sizeof(pentry->command));
@@ -321,12 +288,6 @@ static void init_process_list(void)
 	}
 
 	closedir(dir);
-
-	int diff = cur_process_num - g_process_ctx.process_num;
-	if (diff) {
-		broadcast_add_del_event(diff);
-		g_process_ctx.process_num = cur_process_num;
-	}
 }
 
 static void free_process_list(void)
@@ -587,7 +548,6 @@ void sysmngr_process_init(struct ubus_context *ubus_ctx)
 	g_process_ctx.refresh_interval = get_instance_refresh_interval();
 	g_process_ctx.instance_timer.cb = process_refresh_instance_timer;
 	INIT_LIST_HEAD(&g_process_ctx.list);
-	g_process_ctx.process_num = 0;
 
 	run_refresh_process_list();
 }
