@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2024 iopsys Software Solutions AB
+ * Copyright (C) 2019-2025 iopsys Software Solutions AB
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version 2.1
@@ -46,6 +46,7 @@ typedef struct process_ctx {
 	struct uloop_timeout instance_timer;
 	struct list_head list;
 	int refresh_interval;
+	int max_entries;
 } process_ctx;
 
 typedef struct cpu_info {
@@ -204,44 +205,83 @@ static void procps_get_cmdline(char *buf, int bufsz, const char *pid, const char
 	}
 }
 
+// Filter function for scandir to select only numeric directories (process IDs)
+static int filter_process_dirs(const struct dirent *entry)
+{
+	// Only interested in directories with numeric names
+	if (entry->d_type != DT_DIR)
+		return 0;
+
+	// Check if all characters are digits
+	for (const char *p = entry->d_name; *p; p++) {
+		if (!isdigit(*p))
+			return 0;
+	}
+
+	return 1;
+}
+
+// Comparison function for scandir to sort numerically
+static int numeric_sort(const struct dirent **a, const struct dirent **b)
+{
+	long num1 = strtol((*a)->d_name, NULL, 10);
+	long num2 = strtol((*b)->d_name, NULL, 10);
+	return num1 - num2;
+}
+
 static void init_process_list(void)
 {
-	struct dirent *entry = NULL;
-	DIR *dir = NULL;
-
-	dir = opendir("/proc");
-	if (dir == NULL)
-		return;
+	struct dirent **namelist = NULL;
+	int process_num = 0;
 
 	BBFDM_INFO("Init process list");
 
-	while ((entry = readdir(dir)) != NULL) {
+	// Scan '/proc' for numeric directories
+	int count = scandir("/proc", &namelist, filter_process_dirs, numeric_sort);
+	if (count < 0) {
+		BBFDM_ERR("Error getting process list");
+		return;
+	}
+
+	BBFDM_DEBUG("Process Number: '%d'", count);
+
+	for (int i = count - 1; i >= 0; i--) {
 		struct stat stats = {0};
 		char buf[1024], fstat[288], command[256], comm[32];
 		char bsize[32], cputime[32], priori[32], state;
 		unsigned long stime, utime, vsize;
 		int priority, n;
 
-		int digit = entry->d_name[0] - '0';
-		if (digit < 0 || digit > 9)
+		// Handle max_entries limits (negative means show all)
+		if (g_process_ctx.max_entries >= 0 && process_num >= g_process_ctx.max_entries) {
+			FREE(namelist[i]);
 			continue;
+		}
 
-		snprintf(fstat, sizeof(fstat), "/proc/%s/stat", entry->d_name);
-		if (stat(fstat, &stats))
+		snprintf(fstat, sizeof(fstat), "/proc/%s/stat", namelist[i]->d_name);
+		if (stat(fstat, &stats)) {
+			FREE(namelist[i]);
 			continue;
+		}
 
 		n = dm_file_to_buf(fstat, buf, sizeof(buf));
-		if (n < 0)
+		if (n < 0) {
+			FREE(namelist[i]);
 			continue;
+		}
 
 		char *comm2 = strrchr(buf, ')'); /* split into "PID (cmd" and "<rest>" */
-		if (!comm2) /* sanity check */
-		  continue;
+		if (!comm2) { /* sanity check */
+			FREE(namelist[i]);
+			continue;
+		}
 
 		comm2[0] = '\0';
 		char *comm1 = strchr(buf, '(');
-		if (!comm1) /* sanity check */
-		  continue;
+		if (!comm1) { /* sanity check */
+			FREE(namelist[i]);
+			continue;
+		}
 
 		DM_STRNCPY(comm, comm1 + 1, sizeof(comm));
 
@@ -262,10 +302,12 @@ static void init_process_list(void)
 				&vsize
 			  );
 
-		if (n != 5)
+		if (n != 5) {
+			FREE(namelist[i]);
 			continue;
+		}
 
-		procps_get_cmdline(command, sizeof(command), entry->d_name, comm);
+		procps_get_cmdline(command, sizeof(command), namelist[i]->d_name, comm);
 
 		snprintf(cputime, sizeof(cputime), "%lu", ((stime / sysconf(_SC_CLK_TCK)) + (utime / sysconf(_SC_CLK_TCK))) * 1000);
 		snprintf(bsize, sizeof(bsize), "%lu", vsize >> 10);
@@ -274,20 +316,25 @@ static void init_process_list(void)
 		process_entry *pentry = (process_entry *)calloc(1, sizeof(process_entry));
 		if (!pentry) {
 			BBFDM_ERR("failed to allocate memory for process entry");
-			return;
+			FREE(namelist[i]);
+			continue;
 		}
 
 		list_add_tail(&pentry->list, &g_process_ctx.list);
 
-		DM_STRNCPY(pentry->pid, entry->d_name, sizeof(pentry->pid));
+		DM_STRNCPY(pentry->pid, namelist[i]->d_name, sizeof(pentry->pid));
 		DM_STRNCPY(pentry->command, command, sizeof(pentry->command));
 		DM_STRNCPY(pentry->size, bsize, sizeof(pentry->size));
 		DM_STRNCPY(pentry->priority, priori, sizeof(pentry->priority));
 		DM_STRNCPY(pentry->cputime, cputime, sizeof(pentry->cputime));
 		DM_STRNCPY(pentry->state, get_proc_state(state), sizeof(pentry->state));
+
+		process_num++;
+
+		FREE(namelist[i]);
 	}
 
-	closedir(dir);
+	FREE(namelist);
 }
 
 static void free_process_list(void)
@@ -300,6 +347,15 @@ static void free_process_list(void)
 		list_del(&entry->list);
 		FREE(entry);
 	}
+}
+
+static int get_maximum_process_entries(void)
+{
+	char buf[8] = {0};
+
+	BBFDM_UCI_GET("sysmngr", "process", "max_process_entries", "-1", buf, sizeof(buf));
+
+	return (int)strtol(buf, NULL, 10);
 }
 
 static int get_instance_refresh_interval(void)
@@ -322,29 +378,9 @@ static void run_refresh_process_list(void)
 	}
 }
 
-static void ubus_call_complete_cb(struct ubus_request *req, int ret)
-{
-	BBFDM_DEBUG("'tr069' ubus callback completed");
-	run_refresh_process_list();
-	FREE(req);
-}
-
 static void process_refresh_instance_timer(struct uloop_timeout *timeout)
 {
-	struct blob_buf bb = {0};
-
-	memset(&bb, 0, sizeof(struct blob_buf));
-
-	blob_buf_init(&bb, 0);
-	int res = bbfdm_ubus_invoke_async(g_process_ctx.ubus_ctx, "tr069", "status", bb.head, NULL, ubus_call_complete_cb);
-	blob_buf_free(&bb);
-
-	if (res) {
-		BBFDM_DEBUG("Update process list: 'tr069' ubus object not found");
-		run_refresh_process_list();
-	} else {
-		BBFDM_DEBUG("Process list will be updated after 'tr069' ubus session completes");
-	}
+	run_refresh_process_list();
 }
 
 static void send_cpu_critical_state_event(unsigned int cpu_utilization)
@@ -545,6 +581,7 @@ static void free_global_cpu_info(void)
 void sysmngr_process_init(struct ubus_context *ubus_ctx)
 {
 	g_process_ctx.ubus_ctx = ubus_ctx;
+	g_process_ctx.max_entries = get_maximum_process_entries();
 	g_process_ctx.refresh_interval = get_instance_refresh_interval();
 	g_process_ctx.instance_timer.cb = process_refresh_instance_timer;
 	INIT_LIST_HEAD(&g_process_ctx.list);
