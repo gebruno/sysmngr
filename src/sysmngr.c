@@ -54,6 +54,9 @@ static void config_reload_cb(struct ubus_context *ctx, struct ubus_event_handler
 #ifdef SYSMNGR_PROCESS_STATUS
 	sysmngr_cpu_clean();
 	sysmngr_cpu_init();
+
+	sysmngr_process_clean(ctx);
+	sysmngr_process_init(ctx);
 #endif
 
 #ifdef SYSMNGR_MEMORY_STATUS

@@ -14,6 +14,7 @@
 
 #include <libbbfdm-api/bbfdm_api.h>
 
+#define MAX_PROCESS_ENTRIES BBF_MAX_OBJECT_INSTANCES
 #define DEFAULT_CPU_NAME "cpu"
 #define DEFAULT_CPU_POLL_INTERVAL "5"
 #define DEFAULT_CPU_NUM_SAMPLES "30"
@@ -23,6 +24,10 @@
 
 typedef struct process_entry {
 	struct list_head list;
+
+	unsigned long pid_raw;
+	unsigned long vsize_raw;
+	unsigned long cpu_time_raw;
 
 	char command[256];
 	char state[16];
@@ -41,12 +46,20 @@ typedef struct jiffy_counts_t {
 	unsigned long long busy_time;
 } jiffy_counts_t;
 
+typedef enum {
+	SORT_BY_PID,
+	SORT_BY_MEMORY,
+	SORT_BY_CPU_TIME,
+	/* SORT_BY_CPU_Usage */
+} process_sorting_method_t;
+
 typedef struct process_ctx {
 	struct ubus_context *ubus_ctx;
 	struct uloop_timeout instance_timer;
 	struct list_head list;
 	int refresh_interval;
 	int max_entries;
+	process_sorting_method_t sorting_method;
 } process_ctx;
 
 typedef struct cpu_info {
@@ -72,9 +85,46 @@ typedef struct cpu_info {
 static process_ctx g_process_ctx = {0};
 static cpu_info_t g_cpu_info = {0};
 
+static char *ProcessSupportedSortingMethods[] = {"PID", "Memory", "CPU_Time", /* "CPU_Usage", */ NULL};
+
 /*************************************************************
 * COMMON FUNCTIONS
 **************************************************************/
+static process_sorting_method_t str_to_sorting_method(const char *str)
+{
+	if (!str)
+		return SORT_BY_PID;
+
+	if (strcasecmp(str, ProcessSupportedSortingMethods[0]) == 0)
+		return SORT_BY_PID;
+	else if (strcasecmp(str, ProcessSupportedSortingMethods[1]) == 0)
+		return SORT_BY_MEMORY;
+	else if (strcasecmp(str, ProcessSupportedSortingMethods[2]) == 0)
+		return SORT_BY_CPU_TIME;
+	/*
+	 else if (strcasecmp(str, ProcessSupportedSortingMethods[3]) == 0)
+		return SORT_BY_CPU_Usage;
+	*/
+	return SORT_BY_PID;
+}
+
+static const char *sorting_method_to_str(process_sorting_method_t key)
+{
+	switch (key) {
+		case SORT_BY_MEMORY:
+			return ProcessSupportedSortingMethods[1];
+		case SORT_BY_CPU_TIME:
+			return ProcessSupportedSortingMethods[2];
+		/*
+		case SORT_BY_CPU_Usage:
+			return ProcessSupportedSortingMethods[3];
+		*/
+		case SORT_BY_PID:
+		default:
+			return ProcessSupportedSortingMethods[0];
+	}
+}
+
 static void get_jif_val(jiffy_counts_t *p_jif)
 {
 	FILE *file = NULL;
@@ -221,23 +271,37 @@ static int filter_process_dirs(const struct dirent *entry)
 	return 1;
 }
 
-// Comparison function for scandir to sort numerically
-static int numeric_sort(const struct dirent **a, const struct dirent **b)
+static int compare_by_pid(const void *a, const void *b)
 {
-	long num1 = strtol((*a)->d_name, NULL, 10);
-	long num2 = strtol((*b)->d_name, NULL, 10);
-	return num1 - num2;
+	const process_entry *pa = *(const process_entry **)a;
+	const process_entry *pb = *(const process_entry **)b;
+	return (int)(pb->pid_raw - pa->pid_raw);
+}
+
+static int compare_by_cpu_time(const void *a, const void *b)
+{
+	const process_entry *pa = *(const process_entry **)a;
+	const process_entry *pb = *(const process_entry **)b;
+	return (int)(pb->cpu_time_raw - pa->cpu_time_raw);
+}
+
+static int compare_by_memory(const void *a, const void *b)
+{
+	const process_entry *pa = *(const process_entry **)a;
+	const process_entry *pb = *(const process_entry **)b;
+	return (int)(pb->vsize_raw - pa->vsize_raw);
 }
 
 static void init_process_list(void)
 {
 	struct dirent **namelist = NULL;
+	process_entry *process_entries[MAX_PROCESS_ENTRIES];
 	int process_num = 0;
 
 	BBFDM_INFO("Init process list");
 
 	// Scan '/proc' for numeric directories
-	int count = scandir("/proc", &namelist, filter_process_dirs, numeric_sort);
+	int count = scandir("/proc", &namelist, filter_process_dirs, NULL);
 	if (count < 0) {
 		BBFDM_ERR("Error getting process list");
 		return;
@@ -245,18 +309,18 @@ static void init_process_list(void)
 
 	BBFDM_DEBUG("Process Number: '%d'", count);
 
-	for (int i = count - 1; i >= 0; i--) {
+	for (int i = 0; i < count; i++) {
+
+		if (process_num >= MAX_PROCESS_ENTRIES) {
+			FREE(namelist[i]);
+			continue;
+		}
+
 		struct stat stats = {0};
 		char buf[1024], fstat[288], command[256], comm[32];
 		char bsize[32], cputime[32], priori[32], state;
 		unsigned long stime, utime, vsize;
 		int priority, n;
-
-		// Handle max_entries limits (negative means show all)
-		if (g_process_ctx.max_entries >= 0 && process_num >= g_process_ctx.max_entries) {
-			FREE(namelist[i]);
-			continue;
-		}
 
 		snprintf(fstat, sizeof(fstat), "/proc/%s/stat", namelist[i]->d_name);
 		if (stat(fstat, &stats)) {
@@ -320,8 +384,6 @@ static void init_process_list(void)
 			continue;
 		}
 
-		list_add_tail(&pentry->list, &g_process_ctx.list);
-
 		DM_STRNCPY(pentry->pid, namelist[i]->d_name, sizeof(pentry->pid));
 		DM_STRNCPY(pentry->command, command, sizeof(pentry->command));
 		DM_STRNCPY(pentry->size, bsize, sizeof(pentry->size));
@@ -329,12 +391,50 @@ static void init_process_list(void)
 		DM_STRNCPY(pentry->cputime, cputime, sizeof(pentry->cputime));
 		DM_STRNCPY(pentry->state, get_proc_state(state), sizeof(pentry->state));
 
-		process_num++;
+		// store raw values
+		pentry->cpu_time_raw = utime + stime;
+		pentry->vsize_raw = vsize;
+		pentry->pid_raw = strtoul(namelist[i]->d_name, NULL, 10);
+
+		process_entries[process_num++] = pentry;
 
 		FREE(namelist[i]);
 	}
 
 	FREE(namelist);
+
+	// Sort entries based on configuration
+	switch (g_process_ctx.sorting_method) {
+		case SORT_BY_MEMORY:
+			qsort(process_entries, process_num, sizeof(process_entry *), compare_by_memory);
+			break;
+		/*
+		case SORT_BY_CPU_Usage:
+			qsort(process_entries, process_num, sizeof(process_entry *), compare_by_cpu_usage);
+			break;
+		*/
+		case SORT_BY_CPU_TIME:
+			qsort(process_entries, process_num, sizeof(process_entry *), compare_by_cpu_time);
+			break;
+		case SORT_BY_PID:
+		default:
+			qsort(process_entries, process_num, sizeof(process_entry *), compare_by_pid);
+			break;
+	}
+
+	// Add sorted entries to the global list
+	int process_count = 0;
+	for (int i = 0; i < process_num; i++) {
+
+		// Handle max_entries limits (negative means show all)
+		if (g_process_ctx.max_entries >= 0 && process_count >= g_process_ctx.max_entries) {
+			FREE(process_entries[i]);
+			continue;
+		}
+
+		list_add_tail(&process_entries[i]->list, &g_process_ctx.list);
+		process_count++;
+	}
 }
 
 static void free_process_list(void)
@@ -356,6 +456,15 @@ static int get_maximum_process_entries(void)
 	BBFDM_UCI_GET("sysmngr", "process", "max_process_entries", "-1", buf, sizeof(buf));
 
 	return (int)strtol(buf, NULL, 10);
+}
+
+static process_sorting_method_t get_process_sorting_method(void)
+{
+	char buf[32] = {0};
+
+	BBFDM_UCI_GET("sysmngr", "process", "sorting_method", "PID", buf, sizeof(buf));
+
+	return str_to_sorting_method(buf);
 }
 
 static int get_instance_refresh_interval(void)
@@ -581,8 +690,16 @@ static void free_global_cpu_info(void)
 void sysmngr_process_init(struct ubus_context *ubus_ctx)
 {
 	g_process_ctx.ubus_ctx = ubus_ctx;
+
 	g_process_ctx.max_entries = get_maximum_process_entries();
+	BBFDM_DEBUG("Process Config: |Max Entries| |%d|", g_process_ctx.max_entries);
+
+	g_process_ctx.sorting_method = get_process_sorting_method();
+	BBFDM_DEBUG("Process Config: |Sorting Method| |%s|", sorting_method_to_str(g_process_ctx.sorting_method));
+
 	g_process_ctx.refresh_interval = get_instance_refresh_interval();
+	BBFDM_DEBUG("Process Config: |Refresh Interval| |%d|", g_process_ctx.refresh_interval);
+
 	g_process_ctx.instance_timer.cb = process_refresh_instance_timer;
 	INIT_LIST_HEAD(&g_process_ctx.list);
 
@@ -987,6 +1104,67 @@ static int set_DeviceInfoProcessStatusCPU_FilePath(char *refparam, struct dmctx 
 	return 0;
 }
 
+#ifdef SYSMNGR_VENDOR_EXTENSIONS
+static int get_process_supported_sorting_methods(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
+{
+	char buf[64] = {0};
+	int pos = 0;
+
+	for (int i = 0; ProcessSupportedSortingMethods[i] != NULL; i++) {
+		pos += snprintf(&buf[pos], sizeof(buf) - pos, "%s%s",
+						(i > 0) ? "," : "",
+						ProcessSupportedSortingMethods[i]);
+	}
+
+	*value = dmstrdup(buf);
+	return 0;
+}
+
+static int get_process_current_sorting_method(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
+{
+	*value = dmuci_get_option_value_fallback_def("sysmngr", "process", "sorting_method", "PID");
+	return 0;
+}
+
+static int set_process_current_sorting_method(char *refparam, struct dmctx *ctx, void *data, char *instance, char *value, int action)
+{
+	switch (action)	{
+		case VALUECHECK:
+			if (bbfdm_validate_string(ctx, value, -1, -1, ProcessSupportedSortingMethods, NULL))
+				return FAULT_9007;
+			break;
+		case VALUESET:
+			dmuci_set_value("sysmngr", "process", "sorting_method", value);
+			break;
+	}
+	return 0;
+}
+
+static int get_max_process_entries(char *refparam, struct dmctx *ctx, void *data, char *instance, char **value)
+{
+	*value = dmuci_get_option_value_fallback_def("sysmngr", "process", "max_process_entries", "-1");
+	return 0;
+}
+
+static int set_max_process_entries(char *refparam, struct dmctx *ctx, void *data, char *instance, char *value, int action)
+{
+	char buf[16] = {0};
+
+	switch (action)	{
+		case VALUECHECK:
+			snprintf(buf, sizeof(buf), "%u", MAX_PROCESS_ENTRIES);
+
+			if (bbfdm_validate_int(ctx, value, RANGE_ARGS{{"-1",buf}}, 1))
+				return FAULT_9007;
+			break;
+		case VALUESET:
+			dmuci_set_value("sysmngr", "process", "max_process_entries", value);
+			break;
+	}
+	return 0;
+}
+#endif
+
 /*************************************************************
  * EVENTS
  *************************************************************/
@@ -1058,5 +1236,12 @@ DMLEAF tDeviceInfoProcessStatusParams[] = {
 {"CPUUsage", &DMREAD, DMT_UNINT, get_process_cpu_usage, NULL, BBFDM_BOTH},
 {"ProcessNumberOfEntries", &DMREAD, DMT_UNINT, get_process_number_of_entries, NULL, BBFDM_BOTH},
 {"CPUNumberOfEntries", &DMREAD, DMT_UNINT, get_DeviceInfoProcessStatus_CPUNumberOfEntries, NULL, BBFDM_BOTH},
+
+#ifdef SYSMNGR_VENDOR_EXTENSIONS
+{CUSTOM_PREFIX"ProcessSupportedSortingMethods", &DMREAD, DMT_STRING, get_process_supported_sorting_methods, NULL, BBFDM_BOTH},
+{CUSTOM_PREFIX"ProcessCurrentSortingMethod", &DMWRITE, DMT_STRING, get_process_current_sorting_method, set_process_current_sorting_method, BBFDM_BOTH},
+{CUSTOM_PREFIX"MaxProcessEntries", &DMWRITE, DMT_INT, get_max_process_entries, set_max_process_entries, BBFDM_BOTH},
+#endif
+
 {0}
 };
