@@ -11,7 +11,7 @@ ROOT="$(dirname "${0}")"
 CHECK_IDLE_FILE="${ROOT}/bbf_check_idle.sh"
 RETRY_TIME=300
 START_TIME=$(date +%s)
-MODE="${1}"
+MODE=""
 
 log() {
     echo "${@}"|logger -t bbf.activate_firmware -p info
@@ -19,7 +19,7 @@ log() {
 
 activate_and_reboot_device() {
 	local bank_id="${1}"
-	local keep_config="${2}"
+	local keep_config="${2:-1}"
 	local success
 
 	success=$(ubus call fwbank set_bootbank "{'bank':${bank_id}}" | jsonfilter -e @.success)
@@ -49,12 +49,12 @@ handle_whenidle_mode() {
 	local diff=0
 	
 	[ ! -x "${CHECK_IDLE_FILE}" ] && {
-		activate_and_reboot_device "${bank_id}"
+		activate_and_reboot_device "${bank_id}" "${keep_config}"
 	}
 
 	sh "${CHECK_IDLE_FILE}"
 	if [ "$?" = "0" ]; then
-		activate_and_reboot_device "${bank_id}"
+		activate_and_reboot_device "${bank_id}" "${keep_config}"
 	else
 		[ "${end_time}" -gt "$((diff + RETRY_TIME))" ] && {
 			sleep "${RETRY_TIME}"
@@ -66,7 +66,7 @@ handle_whenidle_mode() {
 	while [ "${end_time}" -gt "${diff}" ]; do
 		sh "${CHECK_IDLE_FILE}"
 		if [ "$?" = "0" ]; then
-			activate_and_reboot_device "${bank_id}"
+			activate_and_reboot_device "${bank_id}" "${keep_config}"
 		else
 
 			if [ "${end_time}" -gt "$((diff + RETRY_TIME))" ]; then
@@ -92,12 +92,25 @@ handle_confirmation_needed_mode() {
 }
 
 ######################## main ########################
+if [ "$#" -lt "6" ]; then
+	log "Invalid inputs [$*]"
+	exit 1
+fi
+
+MODE="${1}"; shift
+BANKID="${1}"; shift
+ENDTIME="${1}"; shift
+LASTWINDOW="${1}"; shift
+MAXRETRIES="${1}"; shift
+KEEPCONFIG="${1}"; shift
+MSG="$*"
+
 if [ "${MODE}" = "Immediately" ] || [ "${MODE}" = "AnyTime" ]; then
-	activate_and_reboot_device "${2}" "${7}"
+	activate_and_reboot_device "${BANKID}" "${KEEPCONFIG}"
 elif [ "${MODE}" = "WhenIdle" ]; then
-	handle_whenidle_mode "${2}" "${3}" "${4}" "${7}"
+	handle_whenidle_mode "${BANKID}" "${ENDTIME}" "${LASTWINDOW}" "${KEEPCONFIG}"
 elif [ "${MODE}" = "ConfirmationNeeded" ]; then
-	handle_confirmation_needed_mode "${2}" "${3}" "${4}" "${5}" "${6}" "${7}"
+	handle_confirmation_needed_mode "${BANKID}" "${ENDTIME}" "${LASTWINDOW}" "${MAXRETRIES}" "${KEEPCONFIG}" "${MSG}"
 else
 	log "[${MODE}] mode is not supported"
 	exit 1

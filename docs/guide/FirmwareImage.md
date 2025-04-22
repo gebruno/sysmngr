@@ -1,12 +1,74 @@
-# Design For Firmware Activation
+# Design For Dual FirmwareImage Download and Activation
 
-According to the TR181 data model, the Activate() command is an operation to activate the firmware image immediately or schedule it in another time.
+According to the TR181 data model, dual boot bank is represented by `Device.DeviceInfo.FirmwareImage.` multi-instance object
 
-In fact, the Linux system already provides us a cron to schedule some jobs. And since Openwrt is one of the Linux systems, so we can use a cron job as solution to handle the firmware activation.
+```
+Device.DeviceInfo.FirmwareImage.{i}.Alias
+Device.DeviceInfo.FirmwareImage.{i}.Available
+Device.DeviceInfo.FirmwareImage.{i}.BootFailureLog
+Device.DeviceInfo.FirmwareImage.{i}.Name
+Device.DeviceInfo.FirmwareImage.{i}.Status
+Device.DeviceInfo.FirmwareImage.{i}.Version
+```
 
-The Activate() command has as arguments the TimeWindow object which is used to activate the required firmware in a specified time. For that, foreach TimeWindow instance a cron job will be created.
+This object also provides two operate commands to manage the firmware image using USP(TR-369)
 
-> Note: As per TR181 data model, max 5 instances of TimeWindow is supported.
+1. Download() operate command is basically used for download a new firmware image and apply it
+```
+Device.DeviceInfo.FirmwareImage.{i}.Download()
+Device.DeviceInfo.FirmwareImage.{i}.Download() input:AutoActivate
+Device.DeviceInfo.FirmwareImage.{i}.Download() input:CheckSum
+Device.DeviceInfo.FirmwareImage.{i}.Download() input:CheckSumAlgorithm
+Device.DeviceInfo.FirmwareImage.{i}.Download() input:CommandKey
+Device.DeviceInfo.FirmwareImage.{i}.Download() input:FileSize
+Device.DeviceInfo.FirmwareImage.{i}.Download() input:Password
+Device.DeviceInfo.FirmwareImage.{i}.Download() input:URL
+Device.DeviceInfo.FirmwareImage.{i}.Download() input:Username
+Device.DeviceInfo.FirmwareImage.{i}.Download() input:X_IOWRT_EU_KeepConfig
+```
+
+> Note: `X_IOWRT_EU_KeepConfig` is a vendor extension and provide additional functionality, its not a mandatory parameter and only visible if vendor extension enabled.
+
+
+2. Activate() operate command to activate the downloaded firmware or switch to other available bank
+
+```
+Device.DeviceInfo.FirmwareImage.{i}.Activate()
+Device.DeviceInfo.FirmwareImage.{i}.Activate() input:TimeWindow.{i}.End
+Device.DeviceInfo.FirmwareImage.{i}.Activate() input:TimeWindow.{i}.MaxRetries
+Device.DeviceInfo.FirmwareImage.{i}.Activate() input:TimeWindow.{i}.Mode
+Device.DeviceInfo.FirmwareImage.{i}.Activate() input:TimeWindow.{i}.Start
+Device.DeviceInfo.FirmwareImage.{i}.Activate() input:TimeWindow.{i}.UserMessage
+Device.DeviceInfo.FirmwareImage.{i}.Activate() input:X_IOWRT_EU_KeepConfig
+```
+
+> Note: `X_IOWRT_EU_KeepConfig` is a vendor extension and provide additional functionality, its not a mandatory parameter and only visible if vendor extension enabled.
+
+Apart from these it also has `Device.DeviceInfo.MaxNumberOfActivateTimeWindows` which defines the maximum available timewindows for `Activate()` operate command.
+
+Here, TR-181 definition for parameters and operate commands works well for most of the tree, except the Vendor extension functionality and TimeWindow management, which is cpe dependent.
+
+## Vendor extensions
+
+With Firmware management, one unaddressed topic is which is very critical for actual deployment is, "What to do with (user/operate) config changes done on the current firmware?"
+
+To give operate/user more flexibility to make that decision, we provide datamodel Vendor extensions to decide at the time of firmware Download/Activate, with below design
+
+
+1. In Download() operate command,
+  a. if AutoActivate=true, then only use the provided X_IOWRT_EU_KeepConfig value, in case of KeepConfig not provided use default keep_config=1
+  b. if AutoActivate=false or not provided then ignore X_IOWRT_EU_KeepConfig value, in this case download will be done without keeping config
+2. In Activate() operate command
+  a. Copy the current config to the new bank, if X_IOWRT_EU_KeepConfig is provided and true
+  b. If X_IOWRT_EU_KeepConfig not provided then use "1" as default keep config value
+3. Bank switch using DeviceInfo.BootFirmwareImage
+  a. In case of boot back switch using BootFirmwareImage, config will not be copied
+
+## Activate command handling
+
+The Activate() command is an operation to activate the firmware image immediately or schedule it in another time using TimeWindow.
+
+In datamodel the TimeWindow is handled by using crontab.
 
 Below is an example of an 'Activate()' command call with three TimeWindow instances. As a result, three jobs are created according to the defined TimeWindow.{i}.Start:
 
@@ -34,44 +96,19 @@ root@iopsys-44d43771aff0:~#
 
 ```
 
-For those cron jobs it is required to give the handler script to be executed which is in our case [bbf_activate_handler.sh](../../libbbfdm/scripts/bbf_activate_handler.sh). And, it is located under '/usr/share/bbfdm/' in the device.
+For those cron jobs it is required to give the handler script to be executed which is in our case [bbf_activate_handler.sh](../../libbbfdm/scripts/bbf_activate_handler.sh). And, it is located under '/usr/share/bbfdm/scripts/' in the device.
 
 
-## Cron job specification
+### Activate Handler for different Mode support
 
-For each cron job related to the activated firmware, it is needed to define it as below:
-
-```bash
-* * * * * command to execute * * * * * *
-- - - - - -                  - - - - - -
-| | | | | |                  | | | | | |
-| | | | | |                  | | | | | --- Message that informs the user of a new activation request
-| | | | | |                  | | | | ----- Maximum number of retries
-| | | | | |                  | | | ------- Force firmware activation when it's not idle (0 - 1)
-| | | | | |                  | | --------- End of the time window
-| | | | | |                  | ----------- Firmware Bank id to be activated
-| | | | | |                  ------------- Mode (AnyTime, Immediately, WhenIdle, ConfirmationNeeded)
-| | | | | -------------------------------- Activate firmware script 'bbf_activate_handler.sh'
-| | | | ---------------------------------- Day of week (0 - 6) (Sunday =0)
-| | | ------------------------------------ Month (1 - 12)
-| | -------------------------------------- Day (1 - 31)
-| ---------------------------------------- Hour (0 - 23)
------------------------------------------- Minute (0 - 59)
-```
+The aim of `bbf_activate_handler.sh` script is to manage firmware images based on the **mode** and the other passed arguments.
 
 
-## Activate Handler script
-
-As described, we create a cron job for each TimeWindow in order to activate the required firmware within a specified time by running the [bbf_activate_handler.sh](../../libbbfdm/scripts/bbf_activate_handler.sh) handler script.
-
-In fact, the aim of this script is to manage firmware images based on the **mode** and the other passed arguments.
-
-
-### 1. Mode 'AnyTime' and 'Immediately':
+#### 1. Mode 'AnyTime' and 'Immediately':
 
 For these modes and based on the firmware bank id, the required firmware image will be immediately activated at start time. The TimeWindow.{i}.End is ignored.
 
-### 2. How to handle 'WhenIdle' mode:
+#### 2. How to handle 'WhenIdle' mode:
 
 Definition of WhenIdle may vary for each deployment and customer, to make it customizable [bbf_check_idle.sh](../../libbbfdm/scripts/bbf_check_idle.sh) script is used. It is assumed that customer shall overwrite this file using customer-config to match with there requirement.
 
@@ -93,7 +130,7 @@ If the exit code from the idle script is zero then firmware image can be activat
 > Note6: It is very likely that TimeWindow with 'WhenIdle' mode might not find any suitable Idle state, in that case firmware shall not be activated. If users/operators want to make sure that firmware gets activated at the end, then they can add a TimeWindow with 'AnyTime/Immediate' mode at the end, to activate the firmware.
 
 
-## Good to know
+#### Good to know
 
 * TimeWindow instance arguments are optional.
 
@@ -109,33 +146,3 @@ If the exit code from the idle script is zero then firmware image can be activat
 
 * TimeWindow.{i}.Mode = 'ConfirmationNeeded' is not supported.
 
-
-## Vendor extension option to keep config while firmware download
-
-It deployments for some customers, its required to do a factory reset after doing a firmware upgrade to start the CPE from clean state and then provision it from ACS/Controller.
-
-As per standard datamodel, it's at-least 2 step time consuming process:
-- Download the Firmware using 'Device.DeviceInfo.FirmwareImage.{i}.Download()' operate command with AutoActivate=1
-- Wait for the 'Device.Boot!' event
-- Factory reset the CPE using 'Device.FactoryReset()'
-- Wait for the Boot event and then start provisioning.
-
-We added an addition vendor specific input option which can be used by USP controller to factoryReset the CPE along with Firmware Upgrade, with this customer can save the cost of one additional reboot, which result into faster provisioning of the CPE.
-
-Below are the current input options defined for Download operate command
-```bash
-Device.DeviceInfo.FirmwareImage.{i}.Download()
-Device.DeviceInfo.FirmwareImage.{i}.Download() input:AutoActivate
-Device.DeviceInfo.FirmwareImage.{i}.Download() input:CheckSum
-Device.DeviceInfo.FirmwareImage.{i}.Download() input:CheckSumAlgorithm
-Device.DeviceInfo.FirmwareImage.{i}.Download() input:CommandKey
-Device.DeviceInfo.FirmwareImage.{i}.Download() input:FileSize
-Device.DeviceInfo.FirmwareImage.{i}.Download() input:Password
-Device.DeviceInfo.FirmwareImage.{i}.Download() input:URL
-Device.DeviceInfo.FirmwareImage.{i}.Download() input:Username
-Device.DeviceInfo.FirmwareImage.{i}.Download() input:X_IOWRT_EU_KeepConfig
-```
-
-Customer can use X_IOWRT_EU_KeepConfig=0, to do factory reset(not copy the current config to next firmware) while doing the download.
-
-> Note: Default value of X_IOWRT_EU_KeepConfig is 1, so in case this option not used, it keeps the config(as the default behavior of the CPE).

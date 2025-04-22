@@ -95,17 +95,6 @@ static char *get_fwbank_bank_id(const char *option_name)
 	return bank_id ? bank_id : "";
 }
 
-static struct uci_section *is_varstate_section_exist(const char *package, const char *section)
-{
-	struct uci_section *s = NULL;
-
-	uci_path_foreach_sections(varstate, package, section, s) {
-		return s;
-	}
-
-	return NULL;
-}
-
 static void fwbank_copy_config(void)
 {
 	char output[64] = {0};
@@ -120,12 +109,16 @@ static bool fwbank_set_bootbank(const char *bank_id)
 	return !res ? true : false;
 }
 
-static bool fwbank_upgrade(const char *path, const char *auto_activate, const char *bank_id, const char *keep_settings)
+static bool fwbank_upgrade(const char *path, bool activate, const char *bank_id, const char *keep_settings)
 {
 	json_object *json_obj = NULL;
 	bool res = false;
 
-	dmubus_call_blocking("fwbank", "upgrade", UBUS_ARGS{{"path", path, String}, {"auto_activate", auto_activate, Boolean}, {"bank", bank_id, Integer}, {"keep_settings", keep_settings, Boolean}}, 4, &json_obj);
+	if (activate == false) {
+		dmubus_call_blocking("fwbank", "upgrade", UBUS_ARGS{{"path", path, String}, {"auto_activate", "0", Boolean}, {"bank", bank_id, Integer}, {"keep_settings", "0", Boolean}}, 4, &json_obj);
+	} else {
+		dmubus_call_blocking("fwbank", "upgrade", UBUS_ARGS{{"path", path, String}, {"auto_activate", "1", Boolean}, {"bank", bank_id, Integer}, {"keep_settings", keep_settings, Boolean}}, 4, &json_obj);
+	}
 
 	if (json_obj) {
 		char *result = dmjson_get_value(json_obj, 1, "result");
@@ -275,7 +268,7 @@ static int bbf_fw_image_download(struct ubus_context *ctx, const char *url, cons
 	string_to_bool(auto_activate, &activate);
 
 	// Apply Firmware Image
-	if (!fwbank_upgrade(fw_image_path, (activate) ? "1" : "0", bank_id, DM_STRLEN(keep) ? keep : "1")) {
+	if (!fwbank_upgrade(fw_image_path, activate, bank_id, DM_STRLEN(keep) ? keep : "1")) {
 		res = 1;
 		snprintf(fault_msg, sizeof(fault_msg), "Internal error occurred when applying the firmware");
 		goto end;
@@ -582,14 +575,6 @@ static int operate_DeviceInfoFirmwareImage_Download(char *refparam, struct dmctx
 
 #ifdef SYSMNGR_VENDOR_EXTENSIONS
 	keep_config = dmjson_get_value((json_object *)value, 1, CUSTOM_PREFIX"KeepConfig");
-
-	bool keep = DM_STRLEN(keep_config) ? dmuci_string_to_boolean(keep_config) : true;
-
-	struct uci_section *s = is_varstate_section_exist("sysmngr", "globals");
-	if (!s) dmuci_add_section_varstate("sysmngr", "globals", &s);
-
-	dmuci_set_value_by_section_varstate(s, "keep_config", keep ? "1" : "0");
-	dmuci_commit_package_varstate("sysmngr");
 #endif
 	char *bank_id = get_fwbank_option_value(data, "id");
 
@@ -609,6 +594,9 @@ static operation_args firmware_image_activate_args = {
 		"TimeWindow.{i}.Mode",
 		"TimeWindow.{i}.UserMessage",
 		"TimeWindow.{i}.MaxRetries",
+#ifdef SYSMNGR_VENDOR_EXTENSIONS
+		CUSTOM_PREFIX"KeepConfig",
+#endif
 		NULL
 	}
 };
@@ -628,11 +616,17 @@ static int operate_DeviceInfoFirmwareImage_Activate(char *refparam, struct dmctx
 	char *user_message[MAX_TIME_WINDOW] = {0};
 	char *max_retries[MAX_TIME_WINDOW] = {0};
 	char *keep_config = NULL;
+	bool bKeepConfig = false;
 	int res = 0, last_idx = -1;
 
-	dmuci_get_option_value_string_varstate("sysmngr", "globals", "keep_config", &keep_config);
+#ifdef SYSMNGR_VENDOR_EXTENSIONS
+	keep_config = dmjson_get_value((json_object *)value, 1, CUSTOM_PREFIX"KeepConfig");
+#endif
+
 	if (DM_STRLEN(keep_config) == 0) {
-		keep_config = dmstrdup("1");
+		bKeepConfig = true;
+	} else {
+		string_to_bool(keep_config, &bKeepConfig);
 	}
 
 	for (int i = 0; i < MAX_TIME_WINDOW; i++) {
@@ -697,20 +691,17 @@ static int operate_DeviceInfoFirmwareImage_Activate(char *refparam, struct dmctx
 			long int start_t = (DM_STRTOL(start_time[i]) > 60) ? DM_STRTOL(start_time[i]) : 60;
 			t_time += start_t;
 			struct tm *tm_local = localtime(&t_time);
+			size_t len;
 
-			snprintf(buffer, sizeof(buffer), "%d %d %d %d * sh %s '%s' '%s' '%ld' '%d' '%s' '%s' '%s'\n",
-											tm_local->tm_min,
-											tm_local->tm_hour,
-											tm_local->tm_mday,
-											tm_local->tm_mon + 1,
-											ACTIVATE_HANDLER_FILE,
-											mode[i],
-											bank_id,
-											(DM_STRTOL(end_time[i]) - DM_STRTOL(start_time[i])),
-											(i == last_idx),
-											user_message[i],
-											max_retries[i],
-											keep_config);
+			snprintf(buffer, sizeof(buffer), "%d %d %d %d * sh %s",
+					tm_local->tm_min, tm_local->tm_hour,
+					tm_local->tm_mday, tm_local->tm_mon + 1,
+					ACTIVATE_HANDLER_FILE);
+
+			len = strlen(buffer);
+			snprintf(buffer+len, sizeof(buffer)-len, " '%s' '%s' '%ld' '%d' '%s' '%d' '%s'\n",
+					mode[i], bank_id, (DM_STRTOL(end_time[i]) - DM_STRTOL(start_time[i])),
+					(i == last_idx), max_retries[i], bKeepConfig, user_message[i]);
 
 			fprintf(file, "%s", buffer);
 		}
@@ -722,8 +713,9 @@ static int operate_DeviceInfoFirmwareImage_Activate(char *refparam, struct dmctx
 		if (!fwbank_set_bootbank(bank_id))
 			return USP_FAULT_COMMAND_FAILURE;
 
-		if (DM_STRCMP(keep_config, "1") == 0)
+		if (bKeepConfig == true) {
 			fwbank_copy_config();
+		}
 
 		bbfdm_task_fork(_exec_reboot, NULL, NULL, NULL);
 	}
