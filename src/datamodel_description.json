@@ -36,6 +36,127 @@
 					"",
 					"([0-9A-Fa-f][0-9A-Fa-f]:){5}([0-9A-Fa-f][0-9A-Fa-f])"
 				]
+			},
+			"Device.DeviceInfo.NetworkProperties.": {
+				"type": "object",
+				"protocols": [
+					"cwmp",
+					"usp"
+				],
+				"description": "This object defines the parameters that describe how the device handles network traffic.",
+				"access": false,
+				"array": false,
+				"{BBF_VENDOR_PREFIX}ActiveConnections": {
+					"type": "int",
+					"read": true,
+					"write": false,
+					"protocols": [
+						"cwmp",
+						"usp"
+					],
+					"description": "Number of currently active network connections.",
+					"datatype": "int"
+				},
+				"{BBF_VENDOR_PREFIX}MaxConnections": {
+					"type": "int",
+					"read": true,
+					"write": false,
+					"protocols": [
+						"cwmp",
+						"usp"
+					],
+					"description": "Maximum number of simultaneous network connections supported.",
+					"datatype": "int"
+				}
+			},
+			"Device.DeviceInfo.ProcessStatus.": {
+				"type": "object",
+				"protocols": [
+					"cwmp",
+					"usp"
+				],
+				"description": "Status of the processes on the device.",
+				"access": false,
+				"array": false,
+				"{BBF_VENDOR_PREFIX}MaxProcessEntries": {
+					"type": "int",
+					"read": true,
+					"write": false,
+					"protocols": [
+						"cwmp",
+						"usp"
+					],
+					"description": "Maximum number of process entries that can be reported by the device.",
+					"default": "-1",
+					"datatype": "int",
+					"range": [
+						{
+							"min": -1,
+							"max": 255
+						}
+					]
+				},
+				"{BBF_VENDOR_PREFIX}ProcessCurrentSortingMethod": {
+					"type": "string",
+					"read": true,
+					"write": true,
+					"protocols": [
+						"cwmp",
+						"usp"
+					],
+					"description": "Current sorting method used for listing process entries (e.g., PID, Memory, CPU_Time).",
+					"datatype": "string"
+				},
+				"{BBF_VENDOR_PREFIX}ProcessSupportedSortingMethods": {
+					"type": "string",
+					"read": true,
+					"write": false,
+					"protocols": [
+						"cwmp",
+						"usp"
+					],
+					"description": "<<list>> List items indicate the supported process sorting methods.",
+					"list": {
+						"datatype": "string",
+						"enumerations": [
+							"PID",
+							"Memory",
+							"CPU_Time"
+						]
+					}
+				}
+			},
+			"Device.DeviceInfo.{BBF_VENDOR_PREFIX}FileDescriptors.": {
+				"type": "object",
+				"protocols": [
+					"cwmp",
+					"usp"
+				],
+				"description": "Object providing file descriptor usage statistics.",
+				"access": false,
+				"array": false,
+				"MaxAllowed": {
+					"type": "int",
+					"read": true,
+					"write": false,
+					"protocols": [
+						"cwmp",
+						"usp"
+					],
+					"description": "Maximum number of file descriptors allowed by the system.",
+					"datatype": "int"
+				},
+				"Used": {
+					"type": "int",
+					"read": true,
+					"write": false,
+					"protocols": [
+						"cwmp",
+						"usp"
+					],
+					"description": "Number of file descriptors currently in use.",
+					"datatype": "int"
+				}
 			}
 		}
 	}
