@@ -42,7 +42,8 @@ static void usage(char *prog)
 	fprintf(stderr, "\n");
 	fprintf(stderr, "options:\n");
 	fprintf(stderr, "    -l  <0-7> Set the loglevel\n");
-	fprintf(stderr, "    -h  Displays this help\n");
+	fprintf(stderr, "    -d  Display the schema data model supported by micro-service\n");
+	fprintf(stderr, "    -h  Display this help\n");
 	fprintf(stderr, "\n");
 }
 
@@ -73,15 +74,18 @@ int main(int argc, char **argv)
 		.cb = config_reload_cb,
 	};
 	int log_level = DEFAULT_LOG_LEVEL;
-	int c = 0;
+	int c = 0, dm_type = 0;
 
-	while ((c = getopt(argc, argv, "hl:")) != -1) {
+	while ((c = getopt(argc, argv, "hdl:")) != -1) {
 		switch (c) {
 		case 'l':
 			log_level = (int)strtod(optarg, NULL);
 			if (log_level < 0 || log_level > 7) {
 				log_level = DEFAULT_LOG_LEVEL;
 			}
+			break;
+		case 'd':
+			dm_type++;
 			break;
 		case 'h':
 			usage(argv[0]);
@@ -97,6 +101,11 @@ int main(int argc, char **argv)
 	bbfdm_ubus_set_service_name(&bbfdm_ctx, "sysmngr");
 	bbfdm_ubus_set_log_level(log_level);
 	bbfdm_ubus_load_data_model(tDynamicObj);
+
+	if (dm_type > 0) {
+		int res = bbfdm_print_data_model_schema(&bbfdm_ctx, dm_type);
+		exit(res);
+	}
 
 	openlog("sysmngr", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
 
