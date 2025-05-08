@@ -140,8 +140,6 @@ int main(int argc, char **argv)
 	uloop_run();
 
 out:
-	bbfdm_ubus_regiter_free(&bbfdm_ctx);
-
 #ifdef SYSMNGR_PROCESS_STATUS
 	sysmngr_process_clean(&bbfdm_ctx.ubus_ctx);
 	sysmngr_cpu_clean();
@@ -159,6 +157,7 @@ out:
 	sysmngr_clean_fwbank_dump(&bbfdm_ctx.ubus_ctx);
 #endif
 
+	bbfdm_ubus_regiter_free(&bbfdm_ctx);
 	closelog();
 
 	return 0;
