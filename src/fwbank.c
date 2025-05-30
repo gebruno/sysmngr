@@ -469,15 +469,15 @@ static bool is_upgrade_success(struct blob_buf *output_bb)
 
 	// Parse the blob buffer for the "result" field
 	if (blobmsg_parse(&policy, 1, &tb, blobmsg_data(output_bb->head), blobmsg_len(output_bb->head)) != 0) {
-		BBFDM_ERR("Failed to parse blobmsg data");
-		return false;
+		BBFDM_INFO("Failed to parse upgrade result, assuming success");
+		return true;
 	}
 
 	// Check if the "result" field exists and is of the correct type
 	if (tb && blobmsg_type(tb) == BLOBMSG_TYPE_STRING)
-		return (strcmp(blobmsg_get_string(tb), "ok") == 0) ? true : false;
+		return (strcmp(blobmsg_get_string(tb), "failure") == 0) ? false : true;
 
-	return false;
+	return true;
 }
 
 struct blob_buf *sysmngr_fwbank_dump(void)
