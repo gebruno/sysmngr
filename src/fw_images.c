@@ -112,7 +112,7 @@ static bool fwbank_set_bootbank(const char *bank_id)
 static bool fwbank_upgrade(const char *path, bool activate, const char *bank_id, const char *keep_settings)
 {
 	json_object *json_obj = NULL;
-	bool res = false;
+	bool res = true;
 
 	if (activate == false) {
 		dmubus_call_blocking("fwbank", "upgrade", UBUS_ARGS{{"path", path, String}, {"auto_activate", "0", Boolean}, {"bank", bank_id, Integer}, {"keep_settings", "0", Boolean}}, 4, &json_obj);
@@ -123,8 +123,6 @@ static bool fwbank_upgrade(const char *path, bool activate, const char *bank_id,
 	if (json_obj) {
 		char *result = dmjson_get_value(json_obj, 1, "result");
 		res = (DM_LSTRCMP(result, "ok") == 0) ? true : false;
-	} else {
-		res = false;
 	}
 
 	if (json_obj != NULL)
