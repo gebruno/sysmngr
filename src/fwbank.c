@@ -612,7 +612,7 @@ int sysmngr_fwbank_upgrade(const char *path, bool auto_activate, uint32_t bank_i
 	snprintf(cmd, sizeof(cmd), "echo '{\"path\":\"%s\", \"auto_activate\":%d, \"bank\":%u, \"keep_settings\":%d}' | %s 2>/dev/null",
 			path, auto_activate, bank_id, keep_settings, FWBANK_UPGRADE_CMD);
 
-	int res = sysmngr_task_fork(fwbank_upgrade_finish_callback, cmd, 10, req, bank_id);
+	int res = sysmngr_task_fork(fwbank_upgrade_finish_callback, cmd, 60, req, bank_id);
 	if (res) {
 		BBFDM_ERR("Failed to start task for fwbank upgrade command");
 		return -1;
