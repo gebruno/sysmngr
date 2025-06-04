@@ -4,7 +4,7 @@ OBJS = sysmngr.o deviceinfo.o utils.o
 
 PROG_CFLAGS = $(CFLAGS) -Wall -Werror -fstrict-aliasing -g
 
-PROG_LDFLAGS = $(LDFLAGS) -luci -lubus -lubox -lblobmsg_json -ljson-c -lssl -lcrypto -lbbfdm-ubus -lbbfdm-api -lbbfdm-api-v2
+PROG_LDFLAGS = $(LDFLAGS) -luci -lubus -lubox -lblobmsg_json -ljson-c -lbbfdm-ubus -lbbfdm-api -lbbfdm-api-v2
 FPIC := -fPIC
 
 ifeq ($(SYSMNGR_VENDOR_CONFIG_FILE),y)
