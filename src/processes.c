@@ -12,6 +12,7 @@
 #include "utils.h"
 #include "processes.h"
 
+#include <libgen.h>
 #include <libbbfdm-api/bbfdm_api.h>
 
 #define MAX_PROCESS_ENTRIES BBF_MAX_OBJECT_INSTANCES
